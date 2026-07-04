@@ -14,7 +14,7 @@ final class IslandState: ObservableObject {
     // Window is always this size; the island renders top-centered inside it.
     static let windowSize = CGSize(width: 640, height: 560)
 
-    let expandedWidth: CGFloat = 470
+    let expandedWidth: CGFloat = 520
     let headerHeight: CGFloat = 46
     let rowHeight: CGFloat = 40
     let footerHeight: CGFloat = 28

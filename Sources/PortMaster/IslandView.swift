@@ -146,6 +146,7 @@ private struct ExpandedContent: View {
                     PortRow(
                         entry: entry,
                         icon: scanner.iconCache[entry.pid],
+                        usage: scanner.usage[entry.pid],
                         killState: scanner.killStates[entry.id],
                         isHovered: hoveredRow == entry.id,
                         rowHeight: state.rowHeight,
@@ -192,6 +193,7 @@ private struct ExpandedContent: View {
 private struct PortRow: View {
     let entry: ListeningPort
     let icon: NSImage?
+    let usage: ProcessUsage?
     let killState: KillState?
     let isHovered: Bool
     let rowHeight: CGFloat
@@ -220,6 +222,8 @@ private struct PortRow: View {
 
             Spacer(minLength: 8)
 
+            usageColumn
+
             trailingControl
         }
         .padding(.horizontal, 10)
@@ -228,6 +232,37 @@ private struct PortRow: View {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(.white.opacity(isHovered ? 0.07 : 0))
         )
+    }
+
+    private var usageColumn: some View {
+        VStack(alignment: .trailing, spacing: 1) {
+            Text(usage.map { Self.cpuText($0.cpuPercent) } ?? "–")
+                .font(.lexend(10.5, .medium).monospacedDigit())
+                .foregroundStyle(
+                    (usage?.cpuPercent ?? 0) >= 90
+                        ? Color.orange
+                        : .white.opacity(0.7)
+                )
+            Text(usage.map { Self.memoryText($0.memoryBytes) } ?? "–")
+                .font(.lexend(9.5).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.35))
+        }
+        .frame(width: 56, alignment: .trailing)
+    }
+
+    private static func cpuText(_ value: Double) -> String {
+        value < 10 ? String(format: "%.1f%%", value) : String(format: "%.0f%%", value)
+    }
+
+    private static let memFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .memory
+        formatter.allowedUnits = [.useMB, .useGB]
+        return formatter
+    }()
+
+    private static func memoryText(_ bytes: UInt64) -> String {
+        memFormatter.string(fromByteCount: Int64(bytes))
     }
 
     @ViewBuilder

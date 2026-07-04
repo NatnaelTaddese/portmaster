@@ -22,6 +22,11 @@ struct ListeningPort: Identifiable, Equatable {
     }
 }
 
+struct ProcessUsage: Equatable {
+    let cpuPercent: Double
+    let memoryBytes: UInt64
+}
+
 enum KillState: Equatable {
     case terminating(since: Date)
     case failed(String)
@@ -38,6 +43,7 @@ final class PortScanner: ObservableObject {
     @Published private(set) var ports: [ListeningPort] = []
     @Published private(set) var killStates: [String: KillState] = [:]
     @Published private(set) var iconCache: [Int32: NSImage] = [:]
+    @Published private(set) var usage: [Int32: ProcessUsage] = [:]
 
     private var timer: Timer?
     private var interval: TimeInterval = 15
@@ -70,15 +76,16 @@ final class PortScanner: ObservableObject {
         isScanning = true
         queue.async { [weak self] in
             let result = Self.runLsof()
+            let usage = Self.runPs(pids: Set(result.map(\.pid)))
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.isScanning = false
-                self.publish(result)
+                self.publish(result, usage: usage)
             }
         }
     }
 
-    private func publish(_ scanned: [ListeningPort]) {
+    private func publish(_ scanned: [ListeningPort], usage newUsage: [Int32: ProcessUsage]) {
         let sorted = scanned.sorted { ($0.port, $0.pid) < ($1.port, $1.pid) }
         if sorted != ports { ports = sorted }
 
@@ -96,6 +103,7 @@ final class PortScanner: ObservableObject {
             }
         }
         if icons != iconCache { iconCache = icons }
+        if newUsage != usage { usage = newUsage }
     }
 
     // MARK: - Killing
@@ -113,6 +121,40 @@ final class PortScanner: ObservableObject {
         // Re-scan shortly after so the row disappears (or reports back) quickly.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.scanNow() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.scanNow() }
+    }
+
+    // MARK: - ps
+
+    /// Fetches CPU% and resident memory for the given pids.
+    /// `%cpu` is ps's decaying average; `rss` is reported in 1024-byte units.
+    private static func runPs(pids: Set<Int32>) -> [Int32: ProcessUsage] {
+        guard !pids.isEmpty else { return [:] }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = [
+            "-o", "pid=,%cpu=,rss=",
+            "-p", pids.map(String.init).joined(separator: ","),
+        ]
+
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+
+        do { try process.run() } catch { return [:] }
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard let text = String(data: data, encoding: .utf8) else { return [:] }
+
+        var usage: [Int32: ProcessUsage] = [:]
+        for line in text.split(separator: "\n") {
+            let fields = line.split(separator: " ")
+            guard fields.count >= 3,
+                  let pid = Int32(fields[0]),
+                  let cpu = Double(fields[1]),
+                  let rssKB = UInt64(fields[2]) else { continue }
+            usage[pid] = ProcessUsage(cpuPercent: cpu, memoryBytes: rssKB * 1024)
+        }
+        return usage
     }
 
     // MARK: - lsof

@@ -5,6 +5,7 @@ struct ListeningPort: Identifiable, Equatable {
     let port: Int
     let pid: Int32
     let command: String
+    let uid: uid_t           // process owner, from lsof
     let addresses: [String]
     var repoName: String? = nil      // git root directory name, when the process runs in a repo
     var gitBranch: String? = nil     // current branch of that repo
@@ -181,16 +182,19 @@ final class PortScanner: ObservableObject {
 
     // MARK: - Dev classification
 
-    /// Stamps `isDevServer` once per scan — a process inside a git repo, a
-    /// container, or a known dev runtime. Must run after git/container
-    /// enrichment; the sort and every view re-render then read a stored flag
-    /// instead of re-matching.
+    /// Stamps `isDevServer` once per scan — a container, or a process the
+    /// current user owns that runs inside a git repo or a known dev runtime.
+    /// The ownership gate keeps root/_system daemons (e.g. a system `java`)
+    /// out of the dev group even when their command matches a runtime prefix.
+    /// Must run after git/container enrichment; the sort and every view
+    /// re-render then read a stored flag instead of re-matching.
     private static func classifyDevServers(_ ports: [ListeningPort]) -> [ListeningPort] {
-        ports.map { port in
+        let currentUser = getuid()
+        return ports.map { port in
             var classified = port
-            classified.isDevServer = port.repoName != nil
-                || port.isContainer
-                || ListeningPort.isDevRuntime(port.command)
+            classified.isDevServer = port.isContainer
+                || (port.uid == currentUser
+                    && (port.repoName != nil || ListeningPort.isDevRuntime(port.command)))
             return classified
         }
     }
@@ -485,11 +489,11 @@ final class PortScanner: ObservableObject {
 
     // MARK: - lsof
 
-    /// Parses `lsof +c 0 -iTCP -sTCP:LISTEN -P -n -Fpcn` machine-readable output.
+    /// Parses `lsof +c 0 -iTCP -sTCP:LISTEN -P -n -Fpcun` machine-readable output.
     private static func runLsof() -> [ListeningPort] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        process.arguments = ["+c", "0", "-iTCP", "-sTCP:LISTEN", "-P", "-n", "-Fpcn"]
+        process.arguments = ["+c", "0", "-iTCP", "-sTCP:LISTEN", "-P", "-n", "-Fpcun"]
 
         let stdout = Pipe()
         process.standardOutput = stdout
@@ -503,6 +507,7 @@ final class PortScanner: ObservableObject {
         var results: [String: ListeningPort] = [:]
         var pid: Int32 = 0
         var command = "?"
+        var uid: uid_t = 0
 
         for line in text.split(separator: "\n") {
             guard let field = line.first else { continue }
@@ -512,6 +517,8 @@ final class PortScanner: ObservableObject {
                 pid = Int32(value) ?? 0
             case "c":
                 command = value
+            case "u":
+                uid = uid_t(value) ?? 0
             case "n":
                 guard let colon = value.lastIndex(of: ":"),
                       let port = Int(value[value.index(after: colon)...]) else { continue }
@@ -521,13 +528,13 @@ final class PortScanner: ObservableObject {
                 if let existing = results[key] {
                     if !existing.addresses.contains(address) {
                         results[key] = ListeningPort(
-                            port: port, pid: pid, command: command,
+                            port: port, pid: pid, command: command, uid: uid,
                             addresses: existing.addresses + [address]
                         )
                     }
                 } else {
                     results[key] = ListeningPort(
-                        port: port, pid: pid, command: command, addresses: [address]
+                        port: port, pid: pid, command: command, uid: uid, addresses: [address]
                     )
                 }
             default:

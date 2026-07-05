@@ -39,7 +39,7 @@ struct IslandRootView: View {
             islandShape.fill(Color.black)
 
             if state.isExpanded {
-                ExpandedContent(state: state, scanner: scanner)
+                PortListContent(state: state, scanner: scanner)
                     .padding(.top, state.notchHeight)
                     .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
             } else if !state.hasNotch {
@@ -68,6 +68,7 @@ struct IslandRootView: View {
         }
         .contextMenu {
             Button("Refresh") { scanner.scanNow() }
+            Button("Use Menu Bar Mode") { state.mode = .menuBar }
             Divider()
             Button("Quit PortMaster") { NSApp.terminate(nil) }
         }
@@ -94,11 +95,29 @@ private struct CollapsedPill: View {
     }
 }
 
-// MARK: - Expanded
+// MARK: - Menu bar popover
 
-private struct ExpandedContent: View {
+/// Hosts the shared port list for the menu bar's `NSPopover`, on its own dark
+/// backing at a fixed width (the notch supplies its own black island shape).
+struct MenuBarPopoverView: View {
     @ObservedObject var state: IslandState
     @ObservedObject var scanner: PortScanner
+
+    var body: some View {
+        PortListContent(state: state, scanner: scanner, showsPin: false)
+            .frame(width: state.expandedWidth)
+            .background(Color.black)
+    }
+}
+
+// MARK: - Expanded
+
+/// Header + port list + footer. Shared by the notch island and the menu bar
+/// popover; the pin control only makes sense for the (hover-driven) notch.
+struct PortListContent: View {
+    @ObservedObject var state: IslandState
+    @ObservedObject var scanner: PortScanner
+    var showsPin: Bool = true
     @State private var hoveredRow: String?
 
     var body: some View {
@@ -124,12 +143,20 @@ private struct ExpandedContent: View {
             IconButton(symbol: "arrow.clockwise", help: "Refresh") {
                 scanner.scanNow()
             }
+            if showsPin {
+                IconButton(
+                    symbol: state.isPinned ? "pin.fill" : "pin",
+                    help: state.isPinned ? "Unpin" : "Keep open",
+                    isActive: state.isPinned
+                ) {
+                    state.isPinned.toggle()
+                }
+            }
             IconButton(
-                symbol: state.isPinned ? "pin.fill" : "pin",
-                help: state.isPinned ? "Unpin" : "Keep open",
-                isActive: state.isPinned
+                symbol: state.mode == .notch ? "menubar.rectangle" : "macwindow",
+                help: state.mode == .notch ? "Switch to menu bar" : "Switch to notch"
             ) {
-                state.isPinned.toggle()
+                state.toggleMode()
             }
             IconButton(symbol: "power", help: "Quit PortMaster") {
                 NSApp.terminate(nil)

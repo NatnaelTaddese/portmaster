@@ -1,11 +1,25 @@
 import AppKit
 import Combine
 
+/// Where PortMaster presents itself: over the notch, or as a menu bar extra.
+enum AppMode: String {
+    case notch
+    case menuBar
+}
+
+private let displayModeKey = "displayMode"
+
 /// Drives the island's geometry and expand/collapse behavior.
 final class IslandState: ObservableObject {
     @Published var isExpanded = false
     @Published var isPinned = false
     @Published var portCount = 0
+
+    /// Selected presentation surface, persisted across launches.
+    @Published var mode: AppMode =
+        AppMode(rawValue: UserDefaults.standard.string(forKey: displayModeKey) ?? "") ?? .notch {
+        didSet { UserDefaults.standard.set(mode.rawValue, forKey: displayModeKey) }
+    }
 
     @Published var notchWidth: CGFloat = 200
     @Published var notchHeight: CGFloat = 32
@@ -81,6 +95,10 @@ final class IslandState: ObservableObject {
             collapseWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
         }
+    }
+
+    func toggleMode() {
+        mode = (mode == .notch) ? .menuBar : .notch
     }
 
     func toggleExpanded() {

@@ -5,13 +5,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let state = IslandState()
     private let scanner = PortScanner()
     private var windowController: NotchWindowController?
+    private var menuBarController: MenuBarController?
     private var cancellables = Set<AnyCancellable>()
     private var clickMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let controller = NotchWindowController(state: state, scanner: scanner)
         windowController = controller
-        positionWindow()
 
         // Keep the island's height + collapsed badge in sync with the scan.
         scanner.$ports
@@ -25,6 +25,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.$isExpanded
             .removeDuplicates()
             .sink { [weak self] in self?.scanner.setActive($0) }
+            .store(in: &cancellables)
+
+        // Show the surface matching the persisted (or default) mode.
+        state.$mode
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.applyMode($0) }
             .store(in: &cancellables)
 
         // Follow display changes (lid open/close, external monitors).
@@ -49,8 +56,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Switch to the requested surface, hiding the other one.
+    private func applyMode(_ mode: AppMode) {
+        switch mode {
+        case .notch:
+            menuBarController?.deactivate()
+            positionWindow()
+        case .menuBar:
+            windowController?.panel.orderOut(nil)
+            if menuBarController == nil {
+                menuBarController = MenuBarController(state: state, scanner: scanner)
+            }
+            menuBarController?.activate()
+        }
+    }
+
     private func positionWindow() {
-        guard let screen = NotchWindowController.targetScreen(),
+        // In menu bar mode the notch panel stays hidden; a screen-change event
+        // must not re-show it via orderFrontRegardless.
+        guard state.mode == .notch,
+              let screen = NotchWindowController.targetScreen(),
               let controller = windowController else { return }
         state.updateScreenMetrics(for: screen)
         controller.layout(on: screen)

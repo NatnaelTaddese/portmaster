@@ -241,14 +241,35 @@ private struct PortRow: View {
                 .frame(width: 64, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(entry.displayName)
-                    .font(.lexend(12, .medium))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .lineLimit(1)
-                Text("\(entry.addressSummary)   pid \(entry.pid)")
-                    .font(.lexend(10).monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.35))
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(entry.displayName)
+                        .font(.lexend(12, .medium))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                    if entry.displayName != entry.processName {
+                        Text(entry.processName)
+                            .font(.lexend(11))
+                            .foregroundStyle(.white.opacity(0.35))
+                            .lineLimit(1)
+                    }
+                }
+                HStack(spacing: 5) {
+                    if let branch = entry.gitBranch, !branch.isEmpty {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 8, weight: .semibold))
+                            Text(branch)
+                                .font(.lexend(10, .medium))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(.white.opacity(0.55))
+                    }
+                    Text("\(entry.addressSummary)   pid \(entry.pid)")
+                        .font(.lexend(10).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.35))
+                        .lineLimit(1)
+                }
             }
 
             Spacer(minLength: 8)

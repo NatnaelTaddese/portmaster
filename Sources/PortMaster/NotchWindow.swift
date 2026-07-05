@@ -52,8 +52,9 @@ final class IslandHitTestView: NSView {
             x: (bounds.width - size.width) / 2,
             y: 0,
             width: size.width,
-            height: size.height
-        ).insetBy(dx: -6, dy: 0).offsetBy(dx: 0, dy: 0)
+            // Include the overscan lift so the bottom lip stays interactive.
+            height: size.height + IslandState.topOverscan
+        ).insetBy(dx: -6, dy: 0)
         guard island.contains(local) else { return nil }
         return super.hitTest(point)
     }
@@ -84,7 +85,9 @@ final class NotchWindowController {
         let size = IslandState.windowSize
         let frame = NSRect(
             x: screen.frame.midX - size.width / 2,
-            y: screen.frame.maxY - size.height,
+            // Lift the top edge above the screen so the island's black bleeds
+            // past the physical edge instead of leaving a desktop hairline.
+            y: screen.frame.maxY - size.height + IslandState.topOverscan,
             width: size.width,
             height: size.height
         )

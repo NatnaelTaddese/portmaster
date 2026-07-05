@@ -40,15 +40,19 @@ struct IslandRootView: View {
 
             if state.isExpanded {
                 PortListContent(state: state, scanner: scanner)
-                    .padding(.top, state.notchHeight)
+                    // Extra top padding matches the panel's overscan lift so the
+                    // header lands in the same on-screen spot as before.
+                    .padding(.top, state.notchHeight + IslandState.topOverscan)
                     .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
             } else if !state.hasNotch {
                 CollapsedPill(count: state.portCount)
+                    .padding(.top, IslandState.topOverscan)
             }
         }
         .frame(
             width: state.currentIslandSize.width,
-            height: state.currentIslandSize.height
+            // The overscan grows the black fill upward past the screen edge.
+            height: state.currentIslandSize.height + IslandState.topOverscan
         )
         .clipShape(islandShape)
         .overlay(

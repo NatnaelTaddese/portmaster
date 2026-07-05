@@ -28,6 +28,11 @@ final class IslandState: ObservableObject {
     // Window is always this size; the island renders top-centered inside it.
     static let windowSize = CGSize(width: 640, height: 560)
 
+    /// Points the black surface bleeds above the physical top edge of the
+    /// screen. Guarantees the opaque fill (and the top stroke line) overshoot
+    /// the edge so no desktop hairline shows between the screen and the island.
+    static let topOverscan: CGFloat = 3
+
     let expandedWidth: CGFloat = 520
     let headerHeight: CGFloat = 46
     let rowHeight: CGFloat = 40

@@ -247,8 +247,8 @@ private struct PortRow: View {
                         .foregroundStyle(.white.opacity(0.92))
                         .lineLimit(1)
                         .layoutPriority(1)
-                    if !entry.isContainer, entry.displayName != entry.processName {
-                        Text(entry.processName)
+                    if let secondary = fadedLabel {
+                        Text(secondary)
                             .font(.lexend(11))
                             .foregroundStyle(.white.opacity(0.35))
                             .lineLimit(1)
@@ -328,6 +328,17 @@ private struct PortRow: View {
                         .fill(.white.opacity(0.08))
                 )
         }
+    }
+
+    /// Greyed-out text shown next to the primary name: the container runtime
+    /// (Docker/OrbStack) for container ports, otherwise the raw process name
+    /// when it differs from the resolved repo name.
+    private var fadedLabel: String? {
+        if entry.isContainer {
+            guard let runtime = entry.containerRuntime, runtime != entry.displayName else { return nil }
+            return runtime
+        }
+        return entry.displayName != entry.processName ? entry.processName : nil
     }
 
     /// Small muted icon+label chip used on the row's secondary line

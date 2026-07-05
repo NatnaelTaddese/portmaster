@@ -9,6 +9,7 @@ struct ListeningPort: Identifiable, Equatable {
     var repoName: String? = nil      // git root directory name, when the process runs in a repo
     var gitBranch: String? = nil     // current branch of that repo
     var isContainer: Bool = false    // published by a container runtime (Docker/OrbStack)
+    var containerRuntime: String? = nil  // "Docker" or "OrbStack"
     var containerProject: String? = nil  // compose project, or container name
     var containerService: String? = nil  // compose service (nil when standalone)
 
@@ -287,6 +288,7 @@ final class PortScanner: ObservableObject {
             guard let runtime = Self.containerRuntimeName(for: port.command) else { return port }
             var enriched = port
             enriched.isContainer = true
+            enriched.containerRuntime = runtime
             if let info = containers[port.port] {
                 enriched.containerProject = info.project
                 enriched.containerService = info.service.isEmpty ? nil : info.service

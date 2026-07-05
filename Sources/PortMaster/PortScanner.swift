@@ -6,15 +6,24 @@ struct ListeningPort: Identifiable, Equatable {
     let pid: Int32
     let command: String
     let addresses: [String]
+    var repoName: String? = nil      // git root directory name, when the process runs in a repo
+    var gitBranch: String? = nil     // current branch of that repo
 
     var id: String { "\(pid):\(port)" }
 
-    var displayName: String {
+    /// The app/command name (independent of any repo it runs in).
+    var processName: String {
         if let app = NSRunningApplication(processIdentifier: pid_t(pid)),
            let name = app.localizedName, !name.isEmpty {
             return name
         }
         return command
+    }
+
+    /// Repo name when the process lives in a git repo, else the app/command name.
+    var displayName: String {
+        if let repoName, !repoName.isEmpty { return repoName }
+        return processName
     }
 
     var addressSummary: String {
@@ -50,6 +59,11 @@ final class PortScanner: ObservableObject {
     private let queue = DispatchQueue(label: "portmaster.scan", qos: .userInitiated)
     private var isScanning = false
 
+    // Git resolution caches — only ever touched on `queue`, so no locking needed.
+    private var gitRootCache: [String: URL?] = [:]                    // cwd -> git root (nil = not a repo)
+    private var branchCache: [String: (branch: String, at: Date)] = [:]  // rootPath -> branch + fetch time
+    private static let branchTTL: TimeInterval = 30
+
     func start() {
         scanNow()
         reschedule()
@@ -75,10 +89,11 @@ final class PortScanner: ObservableObject {
         guard !isScanning else { return }
         isScanning = true
         queue.async { [weak self] in
-            let result = Self.runLsof()
+            guard let self else { return }
+            var result = Self.runLsof()
             let usage = Self.runPs(pids: Set(result.map(\.pid)))
+            result = self.enrichWithGit(result)
             DispatchQueue.main.async {
-                guard let self else { return }
                 self.isScanning = false
                 self.publish(result, usage: usage)
             }
@@ -121,6 +136,123 @@ final class PortScanner: ObservableObject {
         // Re-scan shortly after so the row disappears (or reports back) quickly.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.scanNow() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.scanNow() }
+    }
+
+    // MARK: - Git
+
+    /// Fills in `repoName`/`gitBranch` for any port whose process runs inside a git repo.
+    /// Runs on `queue`; safe to touch the caches here.
+    private func enrichWithGit(_ ports: [ListeningPort]) -> [ListeningPort] {
+        guard !ports.isEmpty else { return ports }
+
+        let cwds = Self.resolveCWDs(pids: Set(ports.map(\.pid)))
+
+        // Resolve a git root per distinct cwd (cached indefinitely — a dir's repo
+        // membership doesn't change), then a branch per distinct root (cached ~30s).
+        var rootForCWD: [String: URL] = [:]
+        var branchForRoot: [String: String] = [:]
+
+        for cwd in Set(cwds.values) {
+            let root: URL?
+            if let cached = gitRootCache[cwd] {
+                root = cached
+            } else {
+                root = Self.findGitRoot(from: cwd)
+                gitRootCache[cwd] = root
+            }
+            guard let root else { continue }
+            rootForCWD[cwd] = root
+
+            let rootPath = root.path
+            if branchForRoot[rootPath] != nil { continue }
+            if let entry = branchCache[rootPath],
+               Date().timeIntervalSince(entry.at) < Self.branchTTL {
+                branchForRoot[rootPath] = entry.branch
+            } else if let branch = Self.gitBranch(at: rootPath) {
+                branchForRoot[rootPath] = branch
+                branchCache[rootPath] = (branch, Date())
+            }
+        }
+
+        // Prune caches for cwds/roots that are no longer live.
+        let liveCWDs = Set(cwds.values)
+        gitRootCache = gitRootCache.filter { liveCWDs.contains($0.key) }
+        let liveRoots = Set(rootForCWD.values.map(\.path))
+        branchCache = branchCache.filter { liveRoots.contains($0.key) }
+
+        return ports.map { port in
+            guard let cwd = cwds[port.pid], let root = rootForCWD[cwd] else { return port }
+            var enriched = port
+            enriched.repoName = root.lastPathComponent
+            enriched.gitBranch = branchForRoot[root.path]
+            return enriched
+        }
+    }
+
+    /// Maps pids to their current working directory via `lsof -a -p <pids> -d cwd -Fn`.
+    private static func resolveCWDs(pids: Set<Int32>) -> [Int32: String] {
+        guard !pids.isEmpty else { return [:] }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        process.arguments = ["-a", "-p", pids.map(String.init).joined(separator: ","), "-d", "cwd", "-Fn"]
+
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+
+        do { try process.run() } catch { return [:] }
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard let text = String(data: data, encoding: .utf8) else { return [:] }
+
+        var result: [Int32: String] = [:]
+        var currentPID: Int32?
+        for line in text.split(separator: "\n") {
+            guard let field = line.first else { continue }
+            let value = String(line.dropFirst())
+            switch field {
+            case "p":
+                currentPID = Int32(value)
+            case "n":
+                if let pid = currentPID, value.hasPrefix("/") { result[pid] = value }
+            default:
+                break
+            }
+        }
+        return result
+    }
+
+    /// Walks up from `path` looking for a `.git` entry. No shell invocation.
+    private static func findGitRoot(from path: String) -> URL? {
+        var current = URL(fileURLWithPath: path)
+        let fm = FileManager.default
+        while current.path != "/" {
+            if fm.fileExists(atPath: current.appendingPathComponent(".git").path) {
+                return current
+            }
+            current = current.deletingLastPathComponent()
+        }
+        return nil
+    }
+
+    /// Current branch via `git -C <root> rev-parse --abbrev-ref HEAD`.
+    /// Returns nil on failure or detached HEAD.
+    private static func gitBranch(at rootPath: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["-C", rootPath, "rev-parse", "--abbrev-ref", "HEAD"]
+
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+
+        do { try process.run() } catch { return nil }
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0,
+              let text = String(data: data, encoding: .utf8) else { return nil }
+        let branch = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (branch.isEmpty || branch == "HEAD") ? nil : branch
     }
 
     // MARK: - ps

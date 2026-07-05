@@ -247,23 +247,18 @@ private struct PortRow: View {
                         .foregroundStyle(.white.opacity(0.92))
                         .lineLimit(1)
                         .layoutPriority(1)
-                    if entry.displayName != entry.processName {
-                        Text(entry.processName)
+                    if let secondary = fadedLabel {
+                        Text(secondary)
                             .font(.lexend(11))
                             .foregroundStyle(.white.opacity(0.35))
                             .lineLimit(1)
                     }
                 }
                 HStack(spacing: 5) {
-                    if let branch = entry.gitBranch, !branch.isEmpty {
-                        HStack(spacing: 3) {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 8, weight: .semibold))
-                            Text(branch)
-                                .font(.lexend(10, .medium))
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(.white.opacity(0.55))
+                    if entry.isContainer {
+                        metaChip(symbol: "shippingbox", text: entry.containerService ?? "container")
+                    } else if let branch = entry.gitBranch, !branch.isEmpty {
+                        metaChip(symbol: "arrow.triangle.branch", text: branch)
                     }
                     Text("\(entry.addressSummary)   pid \(entry.pid)")
                         .font(.lexend(10).monospacedDigit())
@@ -324,7 +319,7 @@ private struct PortRow: View {
                 .resizable()
                 .frame(width: 20, height: 20)
         } else {
-            Image(systemName: "terminal.fill")
+            Image(systemName: entry.isContainer ? "shippingbox.fill" : "terminal.fill")
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.45))
                 .frame(width: 20, height: 20)
@@ -333,6 +328,30 @@ private struct PortRow: View {
                         .fill(.white.opacity(0.08))
                 )
         }
+    }
+
+    /// Greyed-out text shown next to the primary name: the container runtime
+    /// (Docker/OrbStack) for container ports, otherwise the raw process name
+    /// when it differs from the resolved repo name.
+    private var fadedLabel: String? {
+        if entry.isContainer {
+            guard let runtime = entry.containerRuntime, runtime != entry.displayName else { return nil }
+            return runtime
+        }
+        return entry.displayName != entry.processName ? entry.processName : nil
+    }
+
+    /// Small muted icon+label chip used on the row's secondary line
+    /// (git branch or container service).
+    private func metaChip(symbol: String, text: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: symbol)
+                .font(.system(size: 8, weight: .semibold))
+            Text(text)
+                .font(.lexend(10, .medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(.white.opacity(0.55))
     }
 
     @ViewBuilder

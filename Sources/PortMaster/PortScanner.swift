@@ -8,6 +8,10 @@ struct ListeningPort: Identifiable, Equatable {
     let addresses: [String]
     var repoName: String? = nil      // git root directory name, when the process runs in a repo
     var gitBranch: String? = nil     // current branch of that repo
+    var isContainer: Bool = false    // published by a container runtime (Docker/OrbStack)
+    var containerRuntime: String? = nil  // "Docker" or "OrbStack"
+    var containerProject: String? = nil  // compose project, or container name
+    var containerService: String? = nil  // compose service (nil when standalone)
 
     var id: String { "\(pid):\(port)" }
 
@@ -20,8 +24,10 @@ struct ListeningPort: Identifiable, Equatable {
         return command
     }
 
-    /// Repo name when the process lives in a git repo, else the app/command name.
+    /// Container project when published by a runtime, else repo name, else the
+    /// app/command name.
     var displayName: String {
+        if let containerProject, !containerProject.isEmpty { return containerProject }
         if let repoName, !repoName.isEmpty { return repoName }
         return processName
     }
@@ -64,6 +70,12 @@ final class PortScanner: ObservableObject {
     private var branchCache: [String: (branch: String, at: Date)] = [:]  // rootPath -> branch + fetch time
     private static let branchTTL: TimeInterval = 30
 
+    // Container resolution caches — also queue-confined.
+    private var dockerPathResolved = false        // whether we've looked for the docker CLI yet
+    private var dockerPath: String?               // cached docker executable path (nil = not installed)
+    private var containerCache: (map: [Int: ContainerInfo], at: Date)?
+    private static let containerTTL: TimeInterval = 5
+
     func start() {
         scanNow()
         reschedule()
@@ -93,6 +105,7 @@ final class PortScanner: ObservableObject {
             var result = Self.runLsof()
             let usage = Self.runPs(pids: Set(result.map(\.pid)))
             result = self.enrichWithGit(result)
+            result = self.enrichWithContainers(result)
             DispatchQueue.main.async {
                 self.isScanning = false
                 self.publish(result, usage: usage)
@@ -253,6 +266,143 @@ final class PortScanner: ObservableObject {
               let text = String(data: data, encoding: .utf8) else { return nil }
         let branch = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return (branch.isEmpty || branch == "HEAD") ? nil : branch
+    }
+
+    // MARK: - Containers
+
+    struct ContainerInfo {
+        let project: String   // compose project, or container name if standalone
+        let service: String   // compose service (empty for standalone containers)
+    }
+
+    /// Flags container-runtime ports and labels them with their compose
+    /// project/service via `docker ps`. Runs on `queue`.
+    private func enrichWithContainers(_ ports: [ListeningPort]) -> [ListeningPort] {
+        // Which rows are owned by a container runtime (Docker/OrbStack)?
+        let runtimePorts = ports.filter { Self.containerRuntimeName(for: $0.command) != nil }
+        guard !runtimePorts.isEmpty else { return ports }
+
+        let containers = resolveContainers()
+
+        return ports.map { port in
+            guard let runtime = Self.containerRuntimeName(for: port.command) else { return port }
+            var enriched = port
+            enriched.isContainer = true
+            enriched.containerRuntime = runtime
+            if let info = containers[port.port] {
+                enriched.containerProject = info.project
+                enriched.containerService = info.service.isEmpty ? nil : info.service
+            } else {
+                // Daemon unreachable or port not mapped — still mark it as a
+                // container with the generic runtime label.
+                enriched.containerProject = runtime
+            }
+            return enriched
+        }
+    }
+
+    /// Container map keyed by host port, cached for a few seconds so the 2s
+    /// expanded scan doesn't shell out to docker on every tick.
+    private func resolveContainers() -> [Int: ContainerInfo] {
+        if let cache = containerCache,
+           Date().timeIntervalSince(cache.at) < Self.containerTTL {
+            return cache.map
+        }
+
+        if !dockerPathResolved {
+            dockerPath = Self.dockerExecutable()
+            dockerPathResolved = true
+        }
+        guard let docker = dockerPath else {
+            containerCache = ([:], Date())
+            return [:]
+        }
+
+        let map = Self.runDockerPS(docker: docker).map(Self.parseContainerOutput) ?? [:]
+        containerCache = (map, Date())
+        return map
+    }
+
+    /// First existing docker CLI among the common Docker Desktop / OrbStack paths.
+    private static func dockerExecutable() -> String? {
+        let fm = FileManager.default
+        let home = NSHomeDirectory()
+        let candidates = [
+            "/usr/local/bin/docker",
+            "/opt/homebrew/bin/docker",
+            "\(home)/.orbstack/bin/docker",
+            "/Applications/OrbStack.app/Contents/MacOS/xbin/docker",
+            "/Applications/Docker.app/Contents/Resources/bin/docker",
+        ]
+        return candidates.first { fm.isExecutableFile(atPath: $0) }
+    }
+
+    /// Runs `docker ps` with a hard timeout; nil on launch failure or timeout.
+    private static func runDockerPS(docker: String) -> String? {
+        let format = #"{{.Names}}\t{{.Ports}}\t{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}"#
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: docker)
+        process.arguments = ["ps", "--no-trunc", "--format", format]
+
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+
+        let done = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in done.signal() }
+        do { try process.run() } catch { return nil }
+
+        // `docker ps` can hang if the daemon is starting; bound the wait.
+        if done.wait(timeout: .now() + 4) == .timedOut {
+            process.terminate()
+            return nil
+        }
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        guard process.terminationStatus == 0 else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Parses tab-separated `docker ps` rows into a host-port -> ContainerInfo map.
+    static func parseContainerOutput(_ output: String) -> [Int: ContainerInfo] {
+        var result: [Int: ContainerInfo] = [:]
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            let cols = line.components(separatedBy: "\t")
+            guard cols.count >= 2 else { continue }
+            let name = cols[0].trimmingCharacters(in: .whitespaces)
+            let portsField = cols[1]
+            let project = cols.count > 2 ? cols[2].trimmingCharacters(in: .whitespaces) : ""
+            let service = cols.count > 3 ? cols[3].trimmingCharacters(in: .whitespaces) : ""
+            let info = ContainerInfo(project: project.isEmpty ? name : project, service: service)
+            for port in parseContainerHostPorts(portsField) {
+                result[port] = info
+            }
+        }
+        return result
+    }
+
+    /// Extracts published host ports from a docker Ports field, e.g.
+    /// `0.0.0.0:3000->3000/tcp, [::]:3000->3000/tcp` -> [3000]. Unpublished
+    /// ports (`8000/tcp` with no `->`) are ignored.
+    static func parseContainerHostPorts(_ portsField: String) -> [Int] {
+        var seen = Set<Int>()
+        var ports: [Int] = []
+        for match in portsField.matches(of: #/:(\d{1,5})->/#) {
+            guard let port = Int(match.1), seen.insert(port).inserted else { continue }
+            ports.append(port)
+        }
+        return ports
+    }
+
+    /// Maps a listening process's command to its container runtime, or nil.
+    /// lsof runs with `+c 0`, so names are full (e.g. `OrbStack Helper`,
+    /// `com.docker.backend`, `docker-proxy`, `vpnkit-bridge`).
+    static func containerRuntimeName(for command: String) -> String? {
+        let lower = command.lowercased()
+        if lower.contains("orbstack") { return "OrbStack" }
+        if lower.contains("docker") || lower.hasPrefix("com.dock") || lower.hasPrefix("vpnkit") {
+            return "Docker"
+        }
+        return nil
     }
 
     // MARK: - ps

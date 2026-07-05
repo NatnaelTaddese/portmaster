@@ -36,14 +36,20 @@ final class IslandState: ObservableObject {
     let expandedWidth: CGFloat = 520
     let headerHeight: CGFloat = 46
     let rowHeight: CGFloat = 40
+    let sectionHeaderHeight: CGFloat = 24
     let footerHeight: CGFloat = 28
     let maxVisibleRows = 8
+
+    /// Number of "Dev servers" / "System" section headers currently shown (0–2).
+    @Published var visibleSectionCount = 0
 
     private var expandWork: DispatchWorkItem?
     private var collapseWork: DispatchWorkItem?
 
     var listHeight: CGFloat {
-        portCount == 0 ? 108 : CGFloat(min(portCount, maxVisibleRows)) * rowHeight
+        guard portCount > 0 else { return 108 }
+        let rows = CGFloat(min(portCount, maxVisibleRows)) * rowHeight
+        return rows + CGFloat(visibleSectionCount) * sectionHeaderHeight
     }
 
     var expandedHeight: CGFloat {

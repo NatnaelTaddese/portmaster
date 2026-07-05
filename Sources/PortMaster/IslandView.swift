@@ -170,25 +170,51 @@ struct PortListContent: View {
         .frame(height: state.headerHeight)
     }
 
+    private var devPorts: [ListeningPort]    { scanner.ports.filter { $0.isDevServer } }
+    private var systemPorts: [ListeningPort] { scanner.ports.filter { !$0.isDevServer } }
+
     private var portList: some View {
         ScrollView(.vertical, showsIndicators: scanner.ports.count > state.maxVisibleRows) {
             LazyVStack(spacing: 0) {
-                ForEach(scanner.ports) { entry in
-                    PortRow(
-                        entry: entry,
-                        icon: scanner.iconCache[entry.pid],
-                        usage: scanner.usage[entry.pid],
-                        killState: scanner.killStates[entry.id],
-                        isHovered: hoveredRow == entry.id,
-                        rowHeight: state.rowHeight,
-                        onKill: { force in scanner.kill(entry, force: force) }
-                    )
-                    .onHover { hoveredRow = $0 ? entry.id : nil }
+                if !devPorts.isEmpty {
+                    sectionHeader("Dev servers")
+                    ForEach(devPorts) { row($0) }
+                }
+                if !systemPorts.isEmpty {
+                    sectionHeader("System")
+                    ForEach(systemPorts) { row($0) }
                 }
             }
             .padding(.horizontal, 8)
         }
         .frame(height: state.listHeight)
+    }
+
+    private func row(_ entry: ListeningPort) -> some View {
+        PortRow(
+            entry: entry,
+            icon: scanner.iconCache[entry.pid],
+            usage: scanner.usage[entry.pid],
+            killState: scanner.killStates[entry.id],
+            isHovered: hoveredRow == entry.id,
+            rowHeight: state.rowHeight,
+            onKill: { force in scanner.kill(entry, force: force) }
+        )
+        .onHover { hoveredRow = $0 ? entry.id : nil }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.lexend(9.5, .semibold))
+                .foregroundStyle(.white.opacity(0.35))
+                .textCase(.uppercase)
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 3)
+        .frame(height: state.sectionHeaderHeight)
     }
 
     private var emptyState: some View {

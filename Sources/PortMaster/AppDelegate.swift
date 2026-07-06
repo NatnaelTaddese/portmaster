@@ -15,10 +15,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Keep the island's height + collapsed badge in sync with the scan.
         scanner.$ports
-            .map(\.count)
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.state.portCount = $0 }
+            .sink { [weak self] ports in
+                guard let self else { return }
+                self.state.portCount = ports.count
+                let hasDev = ports.contains { $0.isDevServer }
+                let hasSystem = ports.contains { !$0.isDevServer }
+                self.state.visibleSectionCount = (hasDev ? 1 : 0) + (hasSystem ? 1 : 0)
+            }
             .store(in: &cancellables)
 
         // Scan faster while the island is open.

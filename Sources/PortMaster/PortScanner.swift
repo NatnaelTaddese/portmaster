@@ -5,6 +5,7 @@ struct ListeningPort: Identifiable, Equatable {
     let port: Int
     let pid: Int32
     let command: String
+    let uid: uid_t           // process owner, from lsof
     let addresses: [String]
     var repoName: String? = nil      // git root directory name, when the process runs in a repo
     var gitBranch: String? = nil     // current branch of that repo
@@ -12,6 +13,7 @@ struct ListeningPort: Identifiable, Equatable {
     var containerRuntime: String? = nil  // "Docker" or "OrbStack"
     var containerProject: String? = nil  // compose project, or container name
     var containerService: String? = nil  // compose service (nil when standalone)
+    var isDevServer: Bool = false    // stamped once per scan, after enrichment
 
     var id: String { "\(pid):\(port)" }
 
@@ -35,6 +37,29 @@ struct ListeningPort: Identifiable, Equatable {
     var addressSummary: String {
         addresses.joined(separator: "  ")
     }
+
+    /// Matches the lsof command name (full, from `+c 0`) against common dev
+    /// runtimes / task-runners. Case-insensitive, prefix-based so versioned
+    /// names like `python3.11` and `node-18` still match.
+    static func isDevRuntime(_ command: String) -> Bool {
+        let base = command.lowercased()
+        return devRuntimePrefixes.contains { base.hasPrefix($0) }
+    }
+
+    // Linear prefix scan, so a plain Array — a Set buys nothing here.
+    private static let devRuntimePrefixes: [String] = [
+        "node", "deno", "bun", "ts-node", "tsx", "nodemon",
+        "python", "flask", "gunicorn", "uvicorn", "hypercorn",
+        "ruby", "rails", "puma", "rackup", "unicorn",
+        "php", "php-fpm",
+        "java", "gradle", "mvn",
+        "dotnet",
+        "cargo", "air",
+        "go", "hugo",
+        "elixir", "mix", "beam", "phoenix",
+        "vite", "next", "webpack", "esbuild", "rollup", "parcel", "ng",
+        "jekyll", "meteor", "expo", "rustc",
+    ]
 }
 
 struct ProcessUsage: Equatable {
@@ -106,6 +131,7 @@ final class PortScanner: ObservableObject {
             let usage = Self.runPs(pids: Set(result.map(\.pid)))
             result = self.enrichWithGit(result)
             result = self.enrichWithContainers(result)
+            result = Self.classifyDevServers(result)
             DispatchQueue.main.async {
                 self.isScanning = false
                 self.publish(result, usage: usage)
@@ -114,7 +140,10 @@ final class PortScanner: ObservableObject {
     }
 
     private func publish(_ scanned: [ListeningPort], usage newUsage: [Int32: ProcessUsage]) {
-        let sorted = scanned.sorted { ($0.port, $0.pid) < ($1.port, $1.pid) }
+        let sorted = scanned.sorted { lhs, rhs in
+            if lhs.isDevServer != rhs.isDevServer { return lhs.isDevServer }
+            return (lhs.port, lhs.pid) < (rhs.port, rhs.pid)
+        }
         if sorted != ports { ports = sorted }
 
         // Drop kill bookkeeping for rows that no longer exist.
@@ -149,6 +178,25 @@ final class PortScanner: ObservableObject {
         // Re-scan shortly after so the row disappears (or reports back) quickly.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.scanNow() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.scanNow() }
+    }
+
+    // MARK: - Dev classification
+
+    /// Stamps `isDevServer` once per scan — a container, or a process the
+    /// current user owns that runs inside a git repo or a known dev runtime.
+    /// The ownership gate keeps root/_system daemons (e.g. a system `java`)
+    /// out of the dev group even when their command matches a runtime prefix.
+    /// Must run after git/container enrichment; the sort and every view
+    /// re-render then read a stored flag instead of re-matching.
+    private static func classifyDevServers(_ ports: [ListeningPort]) -> [ListeningPort] {
+        let currentUser = getuid()
+        return ports.map { port in
+            var classified = port
+            classified.isDevServer = port.isContainer
+                || (port.uid == currentUser
+                    && (port.repoName != nil || ListeningPort.isDevRuntime(port.command)))
+            return classified
+        }
     }
 
     // MARK: - Git
@@ -441,11 +489,11 @@ final class PortScanner: ObservableObject {
 
     // MARK: - lsof
 
-    /// Parses `lsof +c 0 -iTCP -sTCP:LISTEN -P -n -Fpcn` machine-readable output.
+    /// Parses `lsof +c 0 -iTCP -sTCP:LISTEN -P -n -Fpcun` machine-readable output.
     private static func runLsof() -> [ListeningPort] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        process.arguments = ["+c", "0", "-iTCP", "-sTCP:LISTEN", "-P", "-n", "-Fpcn"]
+        process.arguments = ["+c", "0", "-iTCP", "-sTCP:LISTEN", "-P", "-n", "-Fpcun"]
 
         let stdout = Pipe()
         process.standardOutput = stdout
@@ -459,6 +507,7 @@ final class PortScanner: ObservableObject {
         var results: [String: ListeningPort] = [:]
         var pid: Int32 = 0
         var command = "?"
+        var uid: uid_t = 0
 
         for line in text.split(separator: "\n") {
             guard let field = line.first else { continue }
@@ -468,6 +517,8 @@ final class PortScanner: ObservableObject {
                 pid = Int32(value) ?? 0
             case "c":
                 command = value
+            case "u":
+                uid = uid_t(value) ?? 0
             case "n":
                 guard let colon = value.lastIndex(of: ":"),
                       let port = Int(value[value.index(after: colon)...]) else { continue }
@@ -477,13 +528,13 @@ final class PortScanner: ObservableObject {
                 if let existing = results[key] {
                     if !existing.addresses.contains(address) {
                         results[key] = ListeningPort(
-                            port: port, pid: pid, command: command,
+                            port: port, pid: pid, command: command, uid: uid,
                             addresses: existing.addresses + [address]
                         )
                     }
                 } else {
                     results[key] = ListeningPort(
-                        port: port, pid: pid, command: command, addresses: [address]
+                        port: port, pid: pid, command: command, uid: uid, addresses: [address]
                     )
                 }
             default:

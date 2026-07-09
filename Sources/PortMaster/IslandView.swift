@@ -178,11 +178,11 @@ struct PortListContent: View {
             LazyVStack(spacing: 0) {
                 if !devPorts.isEmpty {
                     sectionHeader("Dev servers")
-                    ForEach(devPorts) { row($0) }
+                    ForEach(groupPortsByOwner(devPorts), id: \.first!.id) { groupView($0) }
                 }
                 if !systemPorts.isEmpty {
                     sectionHeader("System")
-                    ForEach(systemPorts) { row($0) }
+                    ForEach(groupPortsByOwner(systemPorts), id: \.first!.id) { groupView($0) }
                 }
             }
             .padding(.horizontal, 8)
@@ -201,6 +201,27 @@ struct PortListContent: View {
             onKill: { force in scanner.kill(entry, force: force) }
         )
         .onHover { hoveredRow = $0 ? entry.id : nil }
+    }
+
+    /// One owner group: a plain row when it holds a single port, otherwise an
+    /// app header with the ports nested beneath it.
+    @ViewBuilder
+    private func groupView(_ group: [ListeningPort]) -> some View {
+        if group.count == 1 {
+            row(group[0])
+        } else {
+            PortGroupView(
+                ports: group,
+                icon: scanner.iconCache[group[0].pid],
+                usage: scanner.usage,
+                killStates: scanner.killStates,
+                hoveredRow: hoveredRow,
+                groupHeaderHeight: state.groupHeaderHeight,
+                subRowHeight: state.subRowHeight,
+                onHover: { id, isInside in hoveredRow = isInside ? id : nil },
+                onKill: { entry, force in scanner.kill(entry, force: force) }
+            )
+        }
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -258,7 +279,7 @@ private struct PortRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            iconView
+            portIcon(icon, isContainer: entry.isContainer)
                 .frame(width: 20, height: 20)
 
             Text(verbatim: ":\(entry.port)")
@@ -273,7 +294,7 @@ private struct PortRow: View {
                         .foregroundStyle(.white.opacity(0.92))
                         .lineLimit(1)
                         .layoutPriority(1)
-                    if let secondary = fadedLabel {
+                    if let secondary = fadedLabel(for: entry) {
                         Text(secondary)
                             .font(.lexend(11))
                             .foregroundStyle(.white.opacity(0.35))
@@ -281,11 +302,7 @@ private struct PortRow: View {
                     }
                 }
                 HStack(spacing: 5) {
-                    if entry.isContainer {
-                        metaChip(symbol: "shippingbox", text: entry.containerService ?? "container")
-                    } else if let branch = entry.gitBranch, !branch.isEmpty {
-                        metaChip(symbol: "arrow.triangle.branch", text: branch)
-                    }
+                    metaChip(for: entry)
                     Text("\(entry.addressSummary)   pid \(entry.pid)")
                         .font(.lexend(10).monospacedDigit())
                         .foregroundStyle(.white.opacity(0.35))
@@ -295,9 +312,10 @@ private struct PortRow: View {
 
             Spacer(minLength: 8)
 
-            usageColumn
+            usageColumn(usage)
 
-            trailingControl
+            killControl(killState: killState, isHovered: isHovered,
+                        port: entry.port, name: entry.displayName, onKill: onKill)
         }
         .padding(.horizontal, 10)
         .frame(height: rowHeight)
@@ -307,120 +325,242 @@ private struct PortRow: View {
         )
     }
 
-    private var usageColumn: some View {
-        VStack(alignment: .trailing, spacing: 1) {
-            Text(usage.map { Self.cpuText($0.cpuPercent) } ?? "–")
-                .font(.lexend(10.5, .medium).monospacedDigit())
-                .foregroundStyle(
-                    (usage?.cpuPercent ?? 0) >= 90
-                        ? Color.orange
-                        : .white.opacity(0.7)
+}
+
+// MARK: - Grouped app (multiple ports on one owner)
+
+/// Header row for an app/repo/container that owns several ports, followed by one
+/// slim sub-row per port. The icon, name and CPU/mem are shown once; each port
+/// keeps its own address, pid and kill button.
+private struct PortGroupView: View {
+    let ports: [ListeningPort]
+    let icon: NSImage?
+    let usage: [Int32: ProcessUsage]
+    let killStates: [String: KillState]
+    let hoveredRow: String?
+    let groupHeaderHeight: CGFloat
+    let subRowHeight: CGFloat
+    let onHover: (String, Bool) -> Void
+    let onKill: (ListeningPort, Bool) -> Void
+
+    private var lead: ListeningPort { ports[0] }
+
+    /// CPU / memory summed across the group's *distinct* processes — several
+    /// ports frequently share a single pid, so we mustn't double-count it.
+    private var aggregateUsage: ProcessUsage? {
+        var seen = Set<Int32>()
+        var cpu = 0.0
+        var mem: UInt64 = 0
+        var any = false
+        for port in ports where seen.insert(port.pid).inserted {
+            if let u = usage[port.pid] {
+                cpu += u.cpuPercent
+                mem += u.memoryBytes
+                any = true
+            }
+        }
+        return any ? ProcessUsage(cpuPercent: cpu, memoryBytes: mem) : nil
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            ForEach(ports) { port in
+                PortSubRow(
+                    entry: port,
+                    killState: killStates[port.id],
+                    isHovered: hoveredRow == port.id,
+                    height: subRowHeight,
+                    onKill: { force in onKill(port, force) }
                 )
-            Text(usage.map { Self.memoryText($0.memoryBytes) } ?? "–")
-                .font(.lexend(9.5).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.35))
+                .onHover { onHover(port.id, $0) }
+            }
         }
-        .frame(width: 56, alignment: .trailing)
     }
 
-    private static func cpuText(_ value: Double) -> String {
-        value < 10 ? String(format: "%.1f%%", value) : String(format: "%.0f%%", value)
-    }
-
-    private static let memFormatter: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .memory
-        formatter.allowedUnits = [.useMB, .useGB]
-        return formatter
-    }()
-
-    private static func memoryText(_ bytes: UInt64) -> String {
-        memFormatter.string(fromByteCount: Int64(bytes))
-    }
-
-    @ViewBuilder
-    private var iconView: some View {
-        if let icon {
-            Image(nsImage: icon)
-                .resizable()
+    private var header: some View {
+        HStack(spacing: 8) {
+            portIcon(icon, isContainer: lead.isContainer)
                 .frame(width: 20, height: 20)
-        } else {
-            Image(systemName: entry.isContainer ? "shippingbox.fill" : "terminal.fill")
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.45))
-                .frame(width: 20, height: 20)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(.white.opacity(0.08))
-                )
-        }
-    }
-
-    /// Greyed-out text shown next to the primary name: the container runtime
-    /// (Docker/OrbStack) for container ports, otherwise the raw process name
-    /// when it differs from the resolved repo name.
-    private var fadedLabel: String? {
-        if entry.isContainer {
-            guard let runtime = entry.containerRuntime, runtime != entry.displayName else { return nil }
-            return runtime
-        }
-        return entry.displayName != entry.processName ? entry.processName : nil
-    }
-
-    /// Small muted icon+label chip used on the row's secondary line
-    /// (git branch or container service).
-    private func metaChip(symbol: String, text: String) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: symbol)
-                .font(.system(size: 8, weight: .semibold))
-            Text(text)
-                .font(.lexend(10, .medium))
+            Text(lead.displayName)
+                .font(.lexend(12, .medium))
+                .foregroundStyle(.white.opacity(0.92))
                 .lineLimit(1)
+                .layoutPriority(1)
+            if let secondary = fadedLabel(for: lead) {
+                Text(secondary)
+                    .font(.lexend(11))
+                    .foregroundStyle(.white.opacity(0.35))
+                    .lineLimit(1)
+            }
+            metaChip(for: lead)
+            Spacer(minLength: 8)
+            usageColumn(aggregateUsage)
         }
-        .foregroundStyle(.white.opacity(0.55))
+        .padding(.horizontal, 10)
+        .frame(height: groupHeaderHeight)
     }
+}
 
-    @ViewBuilder
-    private var trailingControl: some View {
-        switch killState {
-        case .terminating(let since) where Date().timeIntervalSince(since) <= 3:
-            ProgressView()
-                .controlSize(.small)
-                .frame(width: 22, height: 22)
-        case .terminating:
-            // SIGTERM didn't stick — offer the hammer.
-            Button {
-                onKill(true)
-            } label: {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.red)
-                    .frame(width: 22, height: 22)
-                    .background(Circle().fill(.red.opacity(0.18)))
-            }
-            .buttonStyle(.plain)
-            .help("Still running — force kill (SIGKILL)")
-        case .failed(let message):
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 11))
-                .foregroundStyle(.yellow)
-                .frame(width: 22, height: 22)
-                .help(message)
-        case nil:
-            Button {
-                onKill(NSEvent.modifierFlags.contains(.option))
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(isHovered ? .white : .white.opacity(0.4))
-                    .frame(width: 22, height: 22)
-                    .background(
-                        Circle().fill(isHovered ? Color.red.opacity(0.85) : .white.opacity(0.08))
-                    )
-            }
-            .buttonStyle(.plain)
-            .help("Close port \(entry.port) (kill \(entry.displayName))")
+/// A single port beneath a group header: the port number, its address/pid and a
+/// kill control, indented to sit under the header's name.
+private struct PortSubRow: View {
+    let entry: ListeningPort
+    let killState: KillState?
+    let isHovered: Bool
+    let height: CGFloat
+    let onKill: (Bool) -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(verbatim: ":\(entry.port)")
+                .font(.lexend(12.5, .semibold).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.9))
+                .frame(width: 60, alignment: .leading)
+            Text("\(entry.addressSummary)   pid \(entry.pid)")
+                .font(.lexend(10).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.35))
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            killControl(killState: killState, isHovered: isHovered,
+                        port: entry.port, name: entry.displayName, onKill: onKill)
         }
+        .padding(.leading, 30)
+        .padding(.trailing, 10)
+        .frame(height: height)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(.white.opacity(isHovered ? 0.07 : 0))
+        )
+    }
+}
+
+// MARK: - Shared row pieces (used by both PortRow and grouped views)
+
+private let portMemFormatter: ByteCountFormatter = {
+    let formatter = ByteCountFormatter()
+    formatter.countStyle = .memory
+    formatter.allowedUnits = [.useMB, .useGB]
+    return formatter
+}()
+
+private func cpuText(_ value: Double) -> String {
+    value < 10 ? String(format: "%.1f%%", value) : String(format: "%.0f%%", value)
+}
+
+private func memoryText(_ bytes: UInt64) -> String {
+    portMemFormatter.string(fromByteCount: Int64(bytes))
+}
+
+@ViewBuilder
+private func portIcon(_ icon: NSImage?, isContainer: Bool) -> some View {
+    if let icon {
+        Image(nsImage: icon)
+            .resizable()
+            .frame(width: 20, height: 20)
+    } else {
+        Image(systemName: isContainer ? "shippingbox.fill" : "terminal.fill")
+            .font(.system(size: 11))
+            .foregroundStyle(.white.opacity(0.45))
+            .frame(width: 20, height: 20)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(.white.opacity(0.08))
+            )
+    }
+}
+
+/// Greyed-out text shown next to the primary name: the container runtime
+/// (Docker/OrbStack) for container ports, otherwise the raw process name when it
+/// differs from the resolved repo name.
+private func fadedLabel(for entry: ListeningPort) -> String? {
+    if entry.isContainer {
+        guard let runtime = entry.containerRuntime, runtime != entry.displayName else { return nil }
+        return runtime
+    }
+    return entry.displayName != entry.processName ? entry.processName : nil
+}
+
+/// Small muted icon+label chip (git branch or container service). Renders
+/// nothing when neither applies.
+@ViewBuilder
+private func metaChip(for entry: ListeningPort) -> some View {
+    if entry.isContainer {
+        metaChipLabel(symbol: "shippingbox", text: entry.containerService ?? "container")
+    } else if let branch = entry.gitBranch, !branch.isEmpty {
+        metaChipLabel(symbol: "arrow.triangle.branch", text: branch)
+    }
+}
+
+private func metaChipLabel(symbol: String, text: String) -> some View {
+    HStack(spacing: 3) {
+        Image(systemName: symbol)
+            .font(.system(size: 8, weight: .semibold))
+        Text(text)
+            .font(.lexend(10, .medium))
+            .lineLimit(1)
+    }
+    .foregroundStyle(.white.opacity(0.55))
+}
+
+private func usageColumn(_ usage: ProcessUsage?) -> some View {
+    VStack(alignment: .trailing, spacing: 1) {
+        Text(usage.map { cpuText($0.cpuPercent) } ?? "–")
+            .font(.lexend(10.5, .medium).monospacedDigit())
+            .foregroundStyle(
+                (usage?.cpuPercent ?? 0) >= 90
+                    ? Color.orange
+                    : .white.opacity(0.7)
+            )
+        Text(usage.map { memoryText($0.memoryBytes) } ?? "–")
+            .font(.lexend(9.5).monospacedDigit())
+            .foregroundStyle(.white.opacity(0.35))
+    }
+    .frame(width: 56, alignment: .trailing)
+}
+
+@ViewBuilder
+private func killControl(killState: KillState?, isHovered: Bool,
+                         port: Int, name: String,
+                         onKill: @escaping (Bool) -> Void) -> some View {
+    switch killState {
+    case .terminating(let since) where Date().timeIntervalSince(since) <= 3:
+        ProgressView()
+            .controlSize(.small)
+            .frame(width: 22, height: 22)
+    case .terminating:
+        // SIGTERM didn't stick — offer the hammer.
+        Button {
+            onKill(true)
+        } label: {
+            Image(systemName: "bolt.fill")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.red)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(.red.opacity(0.18)))
+        }
+        .buttonStyle(.plain)
+        .help("Still running — force kill (SIGKILL)")
+    case .failed(let message):
+        Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 11))
+            .foregroundStyle(.yellow)
+            .frame(width: 22, height: 22)
+            .help(message)
+    case nil:
+        Button {
+            onKill(NSEvent.modifierFlags.contains(.option))
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(isHovered ? .white : .white.opacity(0.4))
+                .frame(width: 22, height: 22)
+                .background(
+                    Circle().fill(isHovered ? Color.red.opacity(0.85) : .white.opacity(0.08))
+                )
+        }
+        .buttonStyle(.plain)
+        .help("Close port \(port) (kill \(name))")
     }
 }
 

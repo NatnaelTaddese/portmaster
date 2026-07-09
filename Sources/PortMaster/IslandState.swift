@@ -35,7 +35,9 @@ final class IslandState: ObservableObject {
 
     let expandedWidth: CGFloat = 520
     let headerHeight: CGFloat = 46
-    let rowHeight: CGFloat = 40
+    let rowHeight: CGFloat = 40          // single-port group (a plain row)
+    let groupHeaderHeight: CGFloat = 30  // the app header of a multi-port group
+    let subRowHeight: CGFloat = 28       // one port beneath a group header
     let sectionHeaderHeight: CGFloat = 24
     let footerHeight: CGFloat = 28
     let maxVisibleRows = 8
@@ -43,13 +45,38 @@ final class IslandState: ObservableObject {
     /// Number of "Dev servers" / "System" section headers currently shown (0–2).
     @Published var visibleSectionCount = 0
 
+    /// Measured pixel height of the grouped list body, kept in sync with each
+    /// scan (see AppDelegate). Drives `listHeight`.
+    @Published var contentHeight: CGFloat = 0
+
     private var expandWork: DispatchWorkItem?
     private var collapseWork: DispatchWorkItem?
 
     var listHeight: CGFloat {
         guard portCount > 0 else { return 108 }
-        let rows = CGFloat(min(portCount, maxVisibleRows)) * rowHeight
-        return rows + CGFloat(visibleSectionCount) * sectionHeaderHeight
+        // Cap at ~8 plain rows' worth of height, then the list scrolls.
+        let cap = CGFloat(maxVisibleRows) * rowHeight
+        let measured = contentHeight > 0
+            ? contentHeight
+            : CGFloat(min(portCount, maxVisibleRows)) * rowHeight
+        return min(measured, cap)
+    }
+
+    /// Measures the grouped list body: each section header, plus each group as
+    /// either a single plain row or a header + one sub-row per port.
+    func measuredContentHeight(devGroups: [[ListeningPort]],
+                               systemGroups: [[ListeningPort]]) -> CGFloat {
+        func height(_ groups: [[ListeningPort]]) -> CGFloat {
+            groups.reduce(0) { total, group in
+                total + (group.count == 1
+                    ? rowHeight
+                    : groupHeaderHeight + CGFloat(group.count) * subRowHeight)
+            }
+        }
+        var total: CGFloat = 0
+        if !devGroups.isEmpty { total += sectionHeaderHeight + height(devGroups) }
+        if !systemGroups.isEmpty { total += sectionHeaderHeight + height(systemGroups) }
+        return total
     }
 
     var expandedHeight: CGFloat {

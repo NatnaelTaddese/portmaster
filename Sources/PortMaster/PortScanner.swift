@@ -62,6 +62,21 @@ struct ListeningPort: Identifiable, Equatable {
     ]
 }
 
+/// Clusters ports that share an owner (their `displayName`: container project →
+/// repo → app name), preserving the incoming sort order by first appearance.
+/// Most groups have a single element; multi-element groups are the apps that
+/// listen on several ports (e.g. Spotify, OrbStack).
+func groupPortsByOwner(_ ports: [ListeningPort]) -> [[ListeningPort]] {
+    var order: [String] = []
+    var buckets: [String: [ListeningPort]] = [:]
+    for port in ports {
+        let key = port.displayName
+        if buckets[key] == nil { order.append(key) }
+        buckets[key, default: []].append(port)
+    }
+    return order.map { buckets[$0]! }
+}
+
 struct ProcessUsage: Equatable {
     let cpuPercent: Double
     let memoryBytes: UInt64

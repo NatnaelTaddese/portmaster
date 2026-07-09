@@ -213,7 +213,7 @@ struct PortListContent: View {
             VStack(spacing: 0) {
                 ForEach(group) { row($0) }
             }
-            .padding(4)
+            .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
                     .fill(.white.opacity(0.05))

@@ -20,9 +20,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] ports in
                 guard let self else { return }
                 self.state.portCount = ports.count
-                let hasDev = ports.contains { $0.isDevServer }
-                let hasSystem = ports.contains { !$0.isDevServer }
-                self.state.visibleSectionCount = (hasDev ? 1 : 0) + (hasSystem ? 1 : 0)
+                let devGroups = groupPortsByOwner(ports.filter { $0.isDevServer })
+                let systemGroups = groupPortsByOwner(ports.filter { !$0.isDevServer })
+                self.state.visibleSectionCount =
+                    (devGroups.isEmpty ? 0 : 1) + (systemGroups.isEmpty ? 0 : 1)
+                self.state.contentHeight = self.state.measuredContentHeight(
+                    devGroups: devGroups, systemGroups: systemGroups)
             }
             .store(in: &cancellables)
 

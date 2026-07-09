@@ -35,9 +35,8 @@ final class IslandState: ObservableObject {
 
     let expandedWidth: CGFloat = 520
     let headerHeight: CGFloat = 46
-    let rowHeight: CGFloat = 40          // single-port group (a plain row)
-    let groupHeaderHeight: CGFloat = 30  // the app header of a multi-port group
-    let subRowHeight: CGFloat = 28       // one port beneath a group header
+    let rowHeight: CGFloat = 40          // one port (same in or out of a group)
+    let groupCardPadding: CGFloat = 14   // container inset + gap around a multi-port group
     let sectionHeaderHeight: CGFloat = 24
     let footerHeight: CGFloat = 28
     let maxVisibleRows = 8
@@ -62,15 +61,14 @@ final class IslandState: ObservableObject {
         return min(measured, cap)
     }
 
-    /// Measures the grouped list body: each section header, plus each group as
-    /// either a single plain row or a header + one sub-row per port.
+    /// Measures the grouped list body: each section header, plus every port as a
+    /// full row, with a little extra for the container around multi-port groups.
     func measuredContentHeight(devGroups: [[ListeningPort]],
                                systemGroups: [[ListeningPort]]) -> CGFloat {
         func height(_ groups: [[ListeningPort]]) -> CGFloat {
             groups.reduce(0) { total, group in
-                total + (group.count == 1
-                    ? rowHeight
-                    : groupHeaderHeight + CGFloat(group.count) * subRowHeight)
+                total + CGFloat(group.count) * rowHeight
+                    + (group.count > 1 ? groupCardPadding : 0)
             }
         }
         var total: CGFloat = 0

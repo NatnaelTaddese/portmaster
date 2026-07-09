@@ -203,24 +203,22 @@ struct PortListContent: View {
         .onHover { hoveredRow = $0 ? entry.id : nil }
     }
 
-    /// One owner group: a plain row when it holds a single port, otherwise an
-    /// app header with the ports nested beneath it.
+    /// One owner group. A single port renders as a plain row; several ports that
+    /// share an owner are wrapped in a subtle container so it reads as one app.
     @ViewBuilder
     private func groupView(_ group: [ListeningPort]) -> some View {
         if group.count == 1 {
             row(group[0])
         } else {
-            PortGroupView(
-                ports: group,
-                icon: scanner.iconCache[group[0].pid],
-                usage: scanner.usage,
-                killStates: scanner.killStates,
-                hoveredRow: hoveredRow,
-                groupHeaderHeight: state.groupHeaderHeight,
-                subRowHeight: state.subRowHeight,
-                onHover: { id, isInside in hoveredRow = isInside ? id : nil },
-                onKill: { entry, force in scanner.kill(entry, force: force) }
+            VStack(spacing: 0) {
+                ForEach(group) { row($0) }
+            }
+            .padding(4)
+            .background(
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(.white.opacity(0.05))
             )
+            .padding(.vertical, 3)
         }
     }
 
@@ -327,115 +325,7 @@ private struct PortRow: View {
 
 }
 
-// MARK: - Grouped app (multiple ports on one owner)
-
-/// Header row for an app/repo/container that owns several ports, followed by one
-/// slim sub-row per port. The icon, name and CPU/mem are shown once; each port
-/// keeps its own address, pid and kill button.
-private struct PortGroupView: View {
-    let ports: [ListeningPort]
-    let icon: NSImage?
-    let usage: [Int32: ProcessUsage]
-    let killStates: [String: KillState]
-    let hoveredRow: String?
-    let groupHeaderHeight: CGFloat
-    let subRowHeight: CGFloat
-    let onHover: (String, Bool) -> Void
-    let onKill: (ListeningPort, Bool) -> Void
-
-    private var lead: ListeningPort { ports[0] }
-
-    /// CPU / memory summed across the group's *distinct* processes — several
-    /// ports frequently share a single pid, so we mustn't double-count it.
-    private var aggregateUsage: ProcessUsage? {
-        var seen = Set<Int32>()
-        var cpu = 0.0
-        var mem: UInt64 = 0
-        var any = false
-        for port in ports where seen.insert(port.pid).inserted {
-            if let u = usage[port.pid] {
-                cpu += u.cpuPercent
-                mem += u.memoryBytes
-                any = true
-            }
-        }
-        return any ? ProcessUsage(cpuPercent: cpu, memoryBytes: mem) : nil
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-            ForEach(ports) { port in
-                PortSubRow(
-                    entry: port,
-                    killState: killStates[port.id],
-                    isHovered: hoveredRow == port.id,
-                    height: subRowHeight,
-                    onKill: { force in onKill(port, force) }
-                )
-                .onHover { onHover(port.id, $0) }
-            }
-        }
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            portIcon(icon, isContainer: lead.isContainer)
-                .frame(width: 20, height: 20)
-            Text(lead.displayName)
-                .font(.lexend(12, .medium))
-                .foregroundStyle(.white.opacity(0.92))
-                .lineLimit(1)
-                .layoutPriority(1)
-            if let secondary = fadedLabel(for: lead) {
-                Text(secondary)
-                    .font(.lexend(11))
-                    .foregroundStyle(.white.opacity(0.35))
-                    .lineLimit(1)
-            }
-            metaChip(for: lead)
-            Spacer(minLength: 8)
-            usageColumn(aggregateUsage)
-        }
-        .padding(.horizontal, 10)
-        .frame(height: groupHeaderHeight)
-    }
-}
-
-/// A single port beneath a group header: the port number, its address/pid and a
-/// kill control, indented to sit under the header's name.
-private struct PortSubRow: View {
-    let entry: ListeningPort
-    let killState: KillState?
-    let isHovered: Bool
-    let height: CGFloat
-    let onKill: (Bool) -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(verbatim: ":\(entry.port)")
-                .font(.lexend(12.5, .semibold).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.9))
-                .frame(width: 60, alignment: .leading)
-            Text("\(entry.addressSummary)   pid \(entry.pid)")
-                .font(.lexend(10).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.35))
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            killControl(killState: killState, isHovered: isHovered,
-                        port: entry.port, name: entry.displayName, onKill: onKill)
-        }
-        .padding(.leading, 30)
-        .padding(.trailing, 10)
-        .frame(height: height)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(.white.opacity(isHovered ? 0.07 : 0))
-        )
-    }
-}
-
-// MARK: - Shared row pieces (used by both PortRow and grouped views)
+// MARK: - Shared row pieces
 
 private let portMemFormatter: ByteCountFormatter = {
     let formatter = ByteCountFormatter()

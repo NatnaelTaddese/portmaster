@@ -24,6 +24,43 @@ cp "$BIN/PortMaster" "$APP/Contents/MacOS/PortMaster"
 mkdir -p "$APP/Contents/Resources"
 cp -R "$BIN/PortMaster_PortMaster.bundle" "$APP/Contents/Resources/"
 
+# Generate the macOS icon from the tracked 1024px master. The temporary
+# iconset is removed after iconutil compiles the final bundle resource.
+ICON_SOURCE=Assets/AppIcon.png
+ICONSET="$APP/Contents/Resources/AppIcon.iconset"
+
+if [[ ! -f "$ICON_SOURCE" ]]; then
+    echo "Missing app icon master: $ICON_SOURCE" >&2
+    exit 1
+fi
+
+mkdir -p "$ICONSET"
+
+make_icon() {
+    local size=$1
+    local scale=$2
+    local pixels=$((size * scale))
+    local suffix=""
+    [[ $scale -eq 2 ]] && suffix="@2x"
+
+    sips -z "$pixels" "$pixels" "$ICON_SOURCE" \
+        --out "$ICONSET/icon_${size}x${size}${suffix}.png" >/dev/null
+}
+
+make_icon 16 1
+make_icon 16 2
+make_icon 32 1
+make_icon 32 2
+make_icon 128 1
+make_icon 128 2
+make_icon 256 1
+make_icon 256 2
+make_icon 512 1
+make_icon 512 2
+
+iconutil --convert icns --output "$APP/Contents/Resources/AppIcon.icns" "$ICONSET"
+rm -rf "$ICONSET"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -37,6 +74,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>PortMaster</string>
     <key>CFBundleExecutable</key>
     <string>PortMaster</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon.icns</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

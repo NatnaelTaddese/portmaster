@@ -274,6 +274,7 @@ private struct PortRow: View {
     let isHovered: Bool
     let rowHeight: CGFloat
     let onKill: (Bool) -> Void
+    @State private var showsCopied = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -321,6 +322,36 @@ private struct PortRow: View {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(.white.opacity(isHovered ? 0.07 : 0))
         )
+        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .onTapGesture {
+            if entry.isDevServer {
+                if let url = URL(string: "http://localhost:\(entry.port)") {
+                    NSWorkspace.shared.open(url)
+                }
+            } else {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString("localhost:\(entry.port)", forType: .string)
+                withAnimation(.easeOut(duration: 0.15)) { showsCopied = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                    withAnimation(.easeOut(duration: 0.3)) { showsCopied = false }
+                }
+            }
+        }
+        .overlay {
+            if showsCopied {
+                Text("Copied localhost:\(entry.port)")
+                    .font(.lexend(10, .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(.white.opacity(0.14)))
+                    .transition(.opacity)
+            }
+        }
+        .help(entry.isDevServer
+              ? "Open http://localhost:\(entry.port)"
+              : "Copy localhost:\(entry.port)")
     }
 
 }

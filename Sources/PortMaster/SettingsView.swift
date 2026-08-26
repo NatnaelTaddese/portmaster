@@ -59,6 +59,10 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        // Match the About tab: drop the grouped form's own (lighter) backdrop
+        // so both tabs sit on the plain window background with no seam under
+        // the tab bar.
+        .scrollContentBackground(.hidden)
     }
 
     private func footnote(_ text: String) -> some View {

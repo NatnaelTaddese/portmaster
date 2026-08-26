@@ -86,7 +86,7 @@ struct SettingsView: View {
             Link("GitHub Repository", destination: AppInfo.repoURL)
                 .font(.callout)
                 .padding(.top, 4)
-            Text("© 2026 Natnael Taddese")
+            Text("© 2026 RobiMez")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .padding(.top, 8)

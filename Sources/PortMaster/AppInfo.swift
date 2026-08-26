@@ -12,5 +12,5 @@ enum AppInfo {
     }
 
     static let name = "PortMaster"
-    static let repoURL = URL(string: "https://github.com/NatnaelTaddese/portmaster")!
+    static let repoURL = URL(string: "https://github.com/RobiMez/portmaster")!
 }

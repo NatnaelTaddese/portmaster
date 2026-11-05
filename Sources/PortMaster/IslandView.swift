@@ -215,6 +215,7 @@ struct PortListContent: View {
             }
             .padding(.horizontal, 8)
         }
+        .dynamicScrollFade()
         .frame(height: state.listHeight)
     }
 

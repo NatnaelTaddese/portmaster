@@ -163,29 +163,33 @@ struct PortListContent: View {
 
             Spacer()
 
-            IconButton(symbol: "arrow.clockwise", help: "Refresh") {
-                scanner.scanNow()
-            }
-            if showsPin {
-                IconButton(
-                    symbol: state.isPinned ? "pin.fill" : "pin",
-                    help: state.isPinned ? "Unpin" : "Keep open",
-                    isActive: state.isPinned
-                ) {
-                    state.isPinned.toggle()
+            GlassGroup(spacing: 8) {
+                HStack(spacing: 8) {
+                    IconButton(symbol: "arrow.clockwise", help: "Refresh") {
+                        scanner.scanNow()
+                    }
+                    if showsPin {
+                        IconButton(
+                            symbol: state.isPinned ? "pin.fill" : "pin",
+                            help: state.isPinned ? "Unpin" : "Keep open",
+                            isActive: state.isPinned
+                        ) {
+                            state.isPinned.toggle()
+                        }
+                    }
+                    IconButton(
+                        symbol: state.mode == .notch ? "menubar.rectangle" : "macwindow",
+                        help: state.mode == .notch ? "Switch to menu bar" : "Switch to notch"
+                    ) {
+                        state.toggleMode()
+                    }
+                    IconButton(symbol: "gearshape", help: "Settings") {
+                        openSettings()
+                    }
+                    IconButton(symbol: "power", help: "Quit PortMaster") {
+                        NSApp.terminate(nil)
+                    }
                 }
-            }
-            IconButton(
-                symbol: state.mode == .notch ? "menubar.rectangle" : "macwindow",
-                help: state.mode == .notch ? "Switch to menu bar" : "Switch to notch"
-            ) {
-                state.toggleMode()
-            }
-            IconButton(symbol: "gearshape", help: "Settings") {
-                openSettings()
-            }
-            IconButton(symbol: "power", help: "Quit PortMaster") {
-                NSApp.terminate(nil)
             }
         }
         .padding(.horizontal, 16)
@@ -369,7 +373,7 @@ private struct PortRow: View {
                     .foregroundStyle(palette.textStrong)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4)
-                    .background(Capsule().fill(palette.fillToast))
+                    .glassChip(Capsule(), fallback: palette.fillToast, interactive: false)
                     .transition(.opacity)
             }
         }
@@ -481,7 +485,7 @@ private func killControl(killState: KillState?, isHovered: Bool,
                 .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(palette.danger)
                 .frame(width: 22, height: 22)
-                .background(Circle().fill(palette.dangerFill))
+                .glassChip(Circle(), fallback: palette.dangerFill, tint: palette.dangerFill)
         }
         .buttonStyle(.plain)
         .help("Still running — force kill (SIGKILL)")
@@ -499,8 +503,10 @@ private func killControl(killState: KillState?, isHovered: Bool,
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(isHovered ? palette.onDanger : palette.iconIdle)
                 .frame(width: 22, height: 22)
-                .background(
-                    Circle().fill(isHovered ? palette.dangerFillHover : palette.fillControl)
+                .glassChip(
+                    Circle(),
+                    fallback: isHovered ? palette.dangerFillHover : palette.fillControl,
+                    tint: isHovered ? palette.dangerFillHover : nil
                 )
         }
         .buttonStyle(.plain)
@@ -526,9 +532,7 @@ private struct IconButton: View {
                     isActive ? palette.accent : (hovered ? palette.textPrimary : palette.iconIdle)
                 )
                 .frame(width: 24, height: 24)
-                .background(
-                    Circle().fill(hovered ? palette.fillControlHover : palette.fillSubtle)
-                )
+                .glassChip(Circle(), fallback: hovered ? palette.fillControlHover : palette.fillSubtle)
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }

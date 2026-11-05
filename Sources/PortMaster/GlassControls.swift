@@ -31,18 +31,3 @@ private func makeGlass(tint: Color?, interactive: Bool) -> Glass {
     if interactive { glass = glass.interactive() }
     return glass
 }
-
-/// Groups neighbouring glass controls so their shapes blend into each other
-/// as they come close (macOS 26); a plain passthrough elsewhere.
-struct GlassGroup<Content: View>: View {
-    var spacing: CGFloat = 8
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        if #available(macOS 26, *) {
-            GlassEffectContainer(spacing: spacing) { content }
-        } else {
-            content
-        }
-    }
-}

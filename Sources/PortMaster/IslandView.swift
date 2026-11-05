@@ -163,34 +163,36 @@ struct PortListContent: View {
 
             Spacer()
 
-            GlassGroup(spacing: 8) {
-                HStack(spacing: 8) {
-                    IconButton(symbol: "arrow.clockwise", help: "Refresh") {
-                        scanner.scanNow()
-                    }
-                    if showsPin {
-                        IconButton(
-                            symbol: state.isPinned ? "pin.fill" : "pin",
-                            help: state.isPinned ? "Unpin" : "Keep open",
-                            isActive: state.isPinned
-                        ) {
-                            state.isPinned.toggle()
-                        }
-                    }
+            // One glass capsule holding every header action, like a toolbar
+            // island; the buttons inside are plain icons with a hover wash.
+            HStack(spacing: 2) {
+                IconButton(symbol: "arrow.clockwise", help: "Refresh") {
+                    scanner.scanNow()
+                }
+                if showsPin {
                     IconButton(
-                        symbol: state.mode == .notch ? "menubar.rectangle" : "macwindow",
-                        help: state.mode == .notch ? "Switch to menu bar" : "Switch to notch"
+                        symbol: state.isPinned ? "pin.fill" : "pin",
+                        help: state.isPinned ? "Unpin" : "Keep open",
+                        isActive: state.isPinned
                     ) {
-                        state.toggleMode()
-                    }
-                    IconButton(symbol: "gearshape", help: "Settings") {
-                        openSettings()
-                    }
-                    IconButton(symbol: "power", help: "Quit PortMaster") {
-                        NSApp.terminate(nil)
+                        state.isPinned.toggle()
                     }
                 }
+                IconButton(
+                    symbol: state.mode == .notch ? "menubar.rectangle" : "macwindow",
+                    help: state.mode == .notch ? "Switch to menu bar" : "Switch to notch"
+                ) {
+                    state.toggleMode()
+                }
+                IconButton(symbol: "gearshape", help: "Settings") {
+                    openSettings()
+                }
+                IconButton(symbol: "power", help: "Quit PortMaster") {
+                    NSApp.terminate(nil)
+                }
             }
+            .padding(3)
+            .glassChip(Capsule(), fallback: palette.fillSubtle, interactive: false)
         }
         .padding(.horizontal, 16)
         .frame(height: state.headerHeight)
@@ -531,8 +533,9 @@ private struct IconButton: View {
                 .foregroundStyle(
                     isActive ? palette.accent : (hovered ? palette.textPrimary : palette.iconIdle)
                 )
-                .frame(width: 24, height: 24)
-                .glassChip(Circle(), fallback: hovered ? palette.fillControlHover : palette.fillSubtle)
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(hovered ? palette.fillControlHover : .clear))
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }

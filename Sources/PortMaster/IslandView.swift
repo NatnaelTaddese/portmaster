@@ -43,10 +43,15 @@ struct IslandRootView: View {
         )
     }
 
+    /// Liquid Glass everywhere except over a physical notch, where the island
+    /// must stay solid black to hide the hardware.
+    private var usesGlass: Bool {
+        if #available(macOS 26, *) { return !state.hasNotch }
+        return false
+    }
+
     private var island: some View {
         ZStack(alignment: .top) {
-            islandShape.fill(palette.surface)
-
             if state.isExpanded {
                 PortListContent(state: state, scanner: scanner, openSettings: openSettings)
                     // Extra top padding matches the panel's overscan lift so the
@@ -63,13 +68,16 @@ struct IslandRootView: View {
             // The overscan grows the surface fill upward past the screen edge.
             height: state.currentIslandSize.height + IslandState.topOverscan
         )
+        .glassSurface(in: islandShape, fallback: palette.surface, enabled: usesGlass)
         .clipShape(islandShape)
-        .overlay(
-            islandShape.strokeBorder(
-                state.isExpanded ? palette.border : palette.borderCollapsed,
-                lineWidth: 1
-            )
-        )
+        .overlay {
+            if !usesGlass {
+                islandShape.strokeBorder(
+                    state.isExpanded ? palette.border : palette.borderCollapsed,
+                    lineWidth: 1
+                )
+            }
+        }
         .shadow(
             color: state.isExpanded ? palette.shadow : .clear,
             radius: 26, x: 0, y: 12
@@ -199,16 +207,28 @@ struct PortListContent: View {
             LazyVStack(spacing: 0) {
                 if !devPorts.isEmpty {
                     sectionHeader("Dev servers")
-                    ForEach(groupPortsByOwner(devPorts), id: \.first!.id) { groupView($0) }
+                    sectionPane(devPorts)
                 }
                 if !systemPorts.isEmpty {
                     sectionHeader("System")
-                    ForEach(groupPortsByOwner(systemPorts), id: \.first!.id) { groupView($0) }
+                    sectionPane(systemPorts)
                 }
             }
             .padding(.horizontal, 8)
+            .padding(.bottom, state.listBottomPadding)
         }
+        .hardScrollEdges()
         .frame(height: state.listHeight)
+    }
+
+    /// A section's rows inside one bordered pane, like a terminal split pane.
+    private func sectionPane(_ ports: [ListeningPort]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(groupPortsByOwner(ports), id: \.first!.id) { groupView($0) }
+        }
+        .padding(.vertical, state.sectionPaneInset / 2)
+        .padding(.horizontal, 4)
+        .pane(cornerRadius: 13)
     }
 
     private func row(_ entry: ListeningPort) -> some View {
@@ -236,7 +256,8 @@ struct PortListContent: View {
             }
             .padding(.vertical, 4)
             .background(
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                // Concentric with the section pane (13pt radius, 4pt inset).
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(palette.fillSubtle)
             )
             .padding(.vertical, 3)

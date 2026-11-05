@@ -46,6 +46,8 @@ final class IslandState: ObservableObject {
     let rowHeight: CGFloat = 40          // one port (same in or out of a group)
     let groupCardPadding: CGFloat = 14   // container inset + gap around a multi-port group
     let sectionHeaderHeight: CGFloat = 24
+    let sectionPaneInset: CGFloat = 8     // pane's top + bottom padding around a section
+    let listBottomPadding: CGFloat = 6
     let footerHeight: CGFloat = 28
     let maxVisibleRows = 8
 
@@ -79,9 +81,10 @@ final class IslandState: ObservableObject {
                     + (group.count > 1 ? groupCardPadding : 0)
             }
         }
-        var total: CGFloat = 0
-        if !devGroups.isEmpty { total += sectionHeaderHeight + height(devGroups) }
-        if !systemGroups.isEmpty { total += sectionHeaderHeight + height(systemGroups) }
+        let sectionChrome = sectionHeaderHeight + sectionPaneInset
+        var total: CGFloat = listBottomPadding
+        if !devGroups.isEmpty { total += sectionChrome + height(devGroups) }
+        if !systemGroups.isEmpty { total += sectionChrome + height(systemGroups) }
         return total
     }
 

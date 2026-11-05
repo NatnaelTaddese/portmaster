@@ -53,6 +53,10 @@ struct Palette {
     let fillControlHover: Color
     let fillToast: Color
 
+    // Panes (bordered blocks of rows inside the island / popover)
+    let paneFill: Color
+    let paneBorder: Color
+
     // Accents
     let statusActive: Color
     let statusIdle: Color
@@ -80,6 +84,8 @@ struct Palette {
         fillControl: .white.opacity(0.08),
         fillControlHover: .white.opacity(0.12),
         fillToast: .white.opacity(0.14),
+        paneFill: .white.opacity(0.035),
+        paneBorder: .white.opacity(0.10),
         statusActive: .green,
         statusIdle: .gray,
         accent: .orange,
@@ -107,6 +113,8 @@ struct Palette {
         fillControl: .black.opacity(0.06),
         fillControlHover: .black.opacity(0.10),
         fillToast: .black.opacity(0.10),
+        paneFill: .white.opacity(0.45),
+        paneBorder: .black.opacity(0.09),
         statusActive: .green,
         statusIdle: .gray,
         accent: .orange,

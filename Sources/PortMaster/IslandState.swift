@@ -44,10 +44,10 @@ final class IslandState: ObservableObject {
     let expandedWidth: CGFloat = 520
     let headerHeight: CGFloat = 46
     let rowHeight: CGFloat = 40          // one port (same in or out of a group)
-    let groupCardPadding: CGFloat = 14   // container inset + gap around a multi-port group
-    let sectionHeaderHeight: CGFloat = 24
-    let sectionPaneInset: CGFloat = 8     // pane's top + bottom padding around a section
-    let listBottomPadding: CGFloat = 6
+    let sectionHeaderHeight: CGFloat = 30 // pane title row, inside the pane
+    let sectionPaneInset: CGFloat = 4     // pane padding below its last row
+    let paneSpacing: CGFloat = 8          // gap between panes
+    let listBottomPadding: CGFloat = 8
     let footerHeight: CGFloat = 28
     let maxVisibleRows = 8
 
@@ -71,21 +71,19 @@ final class IslandState: ObservableObject {
         return min(measured, cap)
     }
 
-    /// Measures the grouped list body: each section header, plus every port as a
-    /// full row, with a little extra for the container around multi-port groups.
+    /// Measures the grouped list body: one pane per section (title row, every
+    /// port as a full row, bottom inset), the gap between panes, and the
+    /// list's bottom padding. Must mirror the layout in PortListContent.
     func measuredContentHeight(devGroups: [[ListeningPort]],
                                systemGroups: [[ListeningPort]]) -> CGFloat {
-        func height(_ groups: [[ListeningPort]]) -> CGFloat {
-            groups.reduce(0) { total, group in
-                total + CGFloat(group.count) * rowHeight
-                    + (group.count > 1 ? groupCardPadding : 0)
-            }
+        let panes = [devGroups, systemGroups].filter { !$0.isEmpty }
+        let paneHeights = panes.map { groups in
+            sectionHeaderHeight + sectionPaneInset
+                + CGFloat(groups.reduce(0) { $0 + $1.count }) * rowHeight
         }
-        let sectionChrome = sectionHeaderHeight + sectionPaneInset
-        var total: CGFloat = listBottomPadding
-        if !devGroups.isEmpty { total += sectionChrome + height(devGroups) }
-        if !systemGroups.isEmpty { total += sectionChrome + height(systemGroups) }
-        return total
+        return paneHeights.reduce(0, +)
+            + CGFloat(max(panes.count - 1, 0)) * paneSpacing
+            + listBottomPadding
     }
 
     var expandedHeight: CGFloat {

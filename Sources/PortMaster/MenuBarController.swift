@@ -60,6 +60,13 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.popover.appearance = $0.nsAppearance }
             .store(in: &cancellables)
+
+        // Debug: open the popover on launch, mirroring the notch's START_EXPANDED.
+        if ProcessInfo.processInfo.environment["PORTMASTER_START_EXPANDED"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.togglePopover()
+            }
+        }
     }
 
     func deactivate() {

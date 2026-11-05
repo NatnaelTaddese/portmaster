@@ -43,11 +43,10 @@ struct IslandRootView: View {
         )
     }
 
-    /// Liquid Glass everywhere except over a physical notch, where the island
-    /// must stay solid black to hide the hardware.
-    private var usesGlass: Bool {
-        if #available(macOS 26, *) { return !state.hasNotch }
-        return false
+    /// Pure black over a physical notch (camouflages the hardware); the
+    /// theme's chrome color everywhere else.
+    private var islandFill: Color {
+        state.hasNotch ? .black : palette.surface
     }
 
     private var island: some View {
@@ -68,16 +67,14 @@ struct IslandRootView: View {
             // The overscan grows the surface fill upward past the screen edge.
             height: state.currentIslandSize.height + IslandState.topOverscan
         )
-        .glassSurface(in: islandShape, fallback: palette.surface, enabled: usesGlass)
+        .background(islandShape.fill(islandFill))
         .clipShape(islandShape)
-        .overlay {
-            if !usesGlass {
-                islandShape.strokeBorder(
-                    state.isExpanded ? palette.border : palette.borderCollapsed,
-                    lineWidth: 1
-                )
-            }
-        }
+        .overlay(
+            islandShape.strokeBorder(
+                state.isExpanded ? palette.border : palette.borderCollapsed,
+                lineWidth: 1
+            )
+        )
         .shadow(
             color: state.isExpanded ? palette.shadow : .clear,
             radius: 26, x: 0, y: 12
@@ -120,11 +117,11 @@ private struct CollapsedPill: View {
 
 // MARK: - Menu bar popover
 
-/// Hosts the shared port list for the menu bar's `NSPopover` at a fixed width.
-/// The content is deliberately transparent: the popover frame's own material
-/// (glass on macOS 26) then fills arrow and body as one surface, instead of an
-/// opaque backing meeting the glass arrow in a visible seam. The popover's
-/// `NSAppearance` (synced to the Theme setting) drives `colorScheme` here.
+/// Hosts the shared port list for the menu bar's `NSPopover` at a fixed width,
+/// on the theme's solid chrome color so panes sit on the same neutral backdrop
+/// as the island (the system glass would tint it with whatever is behind).
+/// The popover's `NSAppearance` (synced to the Theme setting) drives
+/// `colorScheme` here.
 struct MenuBarPopoverView: View {
     @ObservedObject var state: IslandState
     @ObservedObject var scanner: PortScanner
@@ -132,9 +129,11 @@ struct MenuBarPopoverView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let palette = Palette.resolve(colorScheme)
         PortListContent(state: state, scanner: scanner, openSettings: openSettings, showsPin: false)
             .frame(width: state.expandedWidth)
-            .environment(\.palette, Palette.resolve(colorScheme))
+            .background(palette.surface)
+            .environment(\.palette, palette)
     }
 }
 
@@ -204,14 +203,12 @@ struct PortListContent: View {
 
     private var portList: some View {
         ScrollView(.vertical, showsIndicators: scanner.ports.count > state.maxVisibleRows) {
-            LazyVStack(spacing: 0) {
+            LazyVStack(spacing: state.paneSpacing) {
                 if !devPorts.isEmpty {
-                    sectionHeader("Dev servers")
-                    sectionPane(devPorts)
+                    sectionPane("Dev servers", devPorts)
                 }
                 if !systemPorts.isEmpty {
-                    sectionHeader("System")
-                    sectionPane(systemPorts)
+                    sectionPane("System", systemPorts)
                 }
             }
             .padding(.horizontal, 8)
@@ -221,14 +218,29 @@ struct PortListContent: View {
         .frame(height: state.listHeight)
     }
 
-    /// A section's rows inside one bordered pane, like a terminal split pane.
-    private func sectionPane(_ ports: [ListeningPort]) -> some View {
-        VStack(spacing: 0) {
-            ForEach(groupPortsByOwner(ports), id: \.first!.id) { groupView($0) }
+    /// One section as a bordered pane, like a terminal split pane: a title row,
+    /// then the rows, with a hairline between owner groups.
+    private func sectionPane(_ title: String, _ ports: [ListeningPort]) -> some View {
+        let groups = groupPortsByOwner(ports)
+        return VStack(spacing: 0) {
+            sectionHeader(title, count: ports.count)
+            ForEach(Array(groups.enumerated()), id: \.element.first!.id) { index, group in
+                VStack(spacing: 0) {
+                    ForEach(group) { row($0) }
+                }
+                .overlay(alignment: .top) {
+                    if index > 0 {
+                        Rectangle()
+                            .fill(palette.paneDivider)
+                            .frame(height: 1)
+                            .padding(.horizontal, 10)
+                    }
+                }
+            }
         }
-        .padding(.vertical, state.sectionPaneInset / 2)
         .padding(.horizontal, 4)
-        .pane(cornerRadius: 13)
+        .padding(.bottom, state.sectionPaneInset)
+        .pane(cornerRadius: 12)
     }
 
     private func row(_ entry: ListeningPort) -> some View {
@@ -244,39 +256,21 @@ struct PortListContent: View {
         .onHover { hoveredRow = $0 ? entry.id : nil }
     }
 
-    /// One owner group. A single port renders as a plain row; several ports that
-    /// share an owner are wrapped in a subtle container so it reads as one app.
-    @ViewBuilder
-    private func groupView(_ group: [ListeningPort]) -> some View {
-        if group.count == 1 {
-            row(group[0])
-        } else {
-            VStack(spacing: 0) {
-                ForEach(group) { row($0) }
-            }
-            .padding(.vertical, 4)
-            .background(
-                // Concentric with the section pane (13pt radius, 4pt inset).
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(palette.fillSubtle)
-            )
-            .padding(.vertical, 3)
-        }
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        HStack {
+    /// Pane title row, like a Rex pane header: the section name plus a count.
+    private func sectionHeader(_ title: String, count: Int) -> some View {
+        HStack(spacing: 6) {
             Text(title)
-                .font(.lexend(9.5, .semibold))
-                .foregroundStyle(palette.textTertiary)
-                .textCase(.uppercase)
+                .font(.lexend(11.5, .medium))
+                .foregroundStyle(palette.textSecondary)
             Spacer()
+            Text("\(count)")
+                .font(.lexend(10.5, .medium).monospacedDigit())
+                .foregroundStyle(palette.textTertiary)
         }
         .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 3)
         .frame(height: state.sectionHeaderHeight)
     }
+
 
     private var emptyState: some View {
         VStack(spacing: 8) {
@@ -363,10 +357,10 @@ private struct PortRow: View {
         .padding(.horizontal, 10)
         .frame(height: rowHeight)
         .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(isHovered ? palette.fillHover : .clear)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .onTapGesture {
             if entry.isDevServer {
                 if let url = URL(string: "http://localhost:\(entry.port)") {

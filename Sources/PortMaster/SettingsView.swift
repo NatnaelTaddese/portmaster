@@ -41,6 +41,11 @@ struct SettingsView: View {
                     Text("Menu Bar").tag(AppMode.menuBar)
                 }
                 .pickerStyle(.segmented)
+                Picker("Theme", selection: $state.appearance) {
+                    ForEach(AppearanceMode.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                footnote("Over a physical notch the island always stays black to blend in with the hardware.")
             }
 
             Section("Scanning") {

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Non-activating borderless panel that floats over the notch on every space,
@@ -63,11 +64,24 @@ final class IslandHitTestView: NSView {
 final class NotchWindowController {
     let panel: NotchPanel
     private let container = IslandHitTestView()
+    private var cancellables = Set<AnyCancellable>()
 
     init(state: IslandState, scanner: PortScanner, openSettings: @escaping () -> Void) {
         panel = NotchPanel(contentRect: NSRect(origin: .zero, size: IslandState.windowSize))
         panel.islandState = state
         container.islandState = state
+
+        // The panel's appearance drives SwiftUI's colorScheme (and the scroller,
+        // spinner and context menu). Over a physical notch the island is always
+        // black, so pin it to dark there regardless of the user's choice.
+        Publishers.CombineLatest(state.$appearance, state.$hasNotch)
+            .map { appearance, hasNotch -> NSAppearance? in
+                hasNotch ? NSAppearance(named: .darkAqua) : appearance.nsAppearance
+            }
+            .removeDuplicates { $0?.name == $1?.name }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.panel.appearance = $0 }
+            .store(in: &cancellables)
 
         let hosting = NSHostingView(
             rootView: IslandRootView(state: state, scanner: scanner, openSettings: openSettings)

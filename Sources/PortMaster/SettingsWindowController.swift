@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Owns the single settings window. The window is created lazily on first
@@ -8,6 +9,7 @@ final class SettingsWindowController {
     private let settings: AppSettings
     private let loginItem = LoginItemModel()
     private var window: NSWindow?
+    private var appearanceSink: AnyCancellable?
 
     init(state: IslandState, settings: AppSettings) {
         self.state = state
@@ -35,6 +37,13 @@ final class SettingsWindowController {
         window.isReleasedWhenClosed = false
         window.center()
         window.setFrameAutosaveName("PortMasterSettings")
+
+        // Follow the Theme setting live; nil inherits the system appearance.
+        window.appearance = state.appearance.nsAppearance
+        appearanceSink = state.$appearance
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak window] in window?.appearance = $0.nsAppearance }
         return window
     }
 }

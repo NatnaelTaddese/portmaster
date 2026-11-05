@@ -12,6 +12,13 @@ struct IslandRootView: View {
     @ObservedObject var state: IslandState
     @ObservedObject var scanner: PortScanner
     let openSettings: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// The notched island stays black in every theme: the fill camouflages the
+    /// hardware notch. Elsewhere (external displays) it follows the appearance.
+    private var palette: Palette {
+        state.hasNotch ? .dark : Palette.resolve(colorScheme)
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -19,6 +26,7 @@ struct IslandRootView: View {
             island
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .environment(\.palette, palette)
     }
 
     private var cornerRadius: CGFloat { state.isExpanded ? 22 : 9 }
@@ -37,7 +45,7 @@ struct IslandRootView: View {
 
     private var island: some View {
         ZStack(alignment: .top) {
-            islandShape.fill(Color.black)
+            islandShape.fill(palette.surface)
 
             if state.isExpanded {
                 PortListContent(state: state, scanner: scanner, openSettings: openSettings)
@@ -52,18 +60,18 @@ struct IslandRootView: View {
         }
         .frame(
             width: state.currentIslandSize.width,
-            // The overscan grows the black fill upward past the screen edge.
+            // The overscan grows the surface fill upward past the screen edge.
             height: state.currentIslandSize.height + IslandState.topOverscan
         )
         .clipShape(islandShape)
         .overlay(
             islandShape.strokeBorder(
-                .white.opacity(state.isExpanded ? 0.10 : 0.05),
+                state.isExpanded ? palette.border : palette.borderCollapsed,
                 lineWidth: 1
             )
         )
         .shadow(
-            color: .black.opacity(state.isExpanded ? 0.55 : 0),
+            color: state.isExpanded ? palette.shadow : .clear,
             radius: 26, x: 0, y: 12
         )
         .contentShape(Rectangle())
@@ -87,15 +95,16 @@ struct IslandRootView: View {
 
 private struct CollapsedPill: View {
     let count: Int
+    @Environment(\.palette) private var palette
 
     var body: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(count > 0 ? Color.green : Color.gray)
+                .fill(count > 0 ? palette.statusActive : palette.statusIdle)
                 .frame(width: 5, height: 5)
             Text("\(count)")
                 .font(.lexend(11, .semibold))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(palette.textStrong)
         }
         .frame(maxHeight: .infinity)
     }
@@ -103,17 +112,21 @@ private struct CollapsedPill: View {
 
 // MARK: - Menu bar popover
 
-/// Hosts the shared port list for the menu bar's `NSPopover`, on its own dark
-/// backing at a fixed width (the notch supplies its own black island shape).
+/// Hosts the shared port list for the menu bar's `NSPopover` at a fixed width.
+/// The content is deliberately transparent: the popover frame's own material
+/// (glass on macOS 26) then fills arrow and body as one surface, instead of an
+/// opaque backing meeting the glass arrow in a visible seam. The popover's
+/// `NSAppearance` (synced to the Theme setting) drives `colorScheme` here.
 struct MenuBarPopoverView: View {
     @ObservedObject var state: IslandState
     @ObservedObject var scanner: PortScanner
     let openSettings: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         PortListContent(state: state, scanner: scanner, openSettings: openSettings, showsPin: false)
             .frame(width: state.expandedWidth)
-            .background(Color.black)
+            .environment(\.palette, Palette.resolve(colorScheme))
     }
 }
 
@@ -127,6 +140,7 @@ struct PortListContent: View {
     let openSettings: () -> Void
     var showsPin: Bool = true
     @State private var hoveredRow: String?
+    @Environment(\.palette) private var palette
 
     var body: some View {
         VStack(spacing: 0) {
@@ -144,7 +158,7 @@ struct PortListContent: View {
         HStack(spacing: 8) {
             Text("Ports")
                 .font(.lexend(12, .semibold))
-                .foregroundStyle(.white.opacity(0.6))
+                .foregroundStyle(palette.textMuted)
 
             Spacer()
 
@@ -223,7 +237,7 @@ struct PortListContent: View {
             .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(.white.opacity(0.05))
+                    .fill(palette.fillSubtle)
             )
             .padding(.vertical, 3)
         }
@@ -233,7 +247,7 @@ struct PortListContent: View {
         HStack {
             Text(title)
                 .font(.lexend(9.5, .semibold))
-                .foregroundStyle(.white.opacity(0.35))
+                .foregroundStyle(palette.textTertiary)
                 .textCase(.uppercase)
             Spacer()
         }
@@ -247,10 +261,10 @@ struct PortListContent: View {
         VStack(spacing: 8) {
             Image(systemName: "moon.zzz.fill")
                 .font(.system(size: 22))
-                .foregroundStyle(.white.opacity(0.25))
+                .foregroundStyle(palette.textFaint)
             Text("No listening ports")
                 .font(.lexend(12, .medium))
-                .foregroundStyle(.white.opacity(0.5))
+                .foregroundStyle(palette.textMuted)
         }
         .frame(maxWidth: .infinity)
         .frame(height: state.listHeight)
@@ -260,11 +274,11 @@ struct PortListContent: View {
         HStack {
             Text("⌥-click ✕ to force kill")
                 .font(.lexend(9.5))
-                .foregroundStyle(.white.opacity(0.3))
+                .foregroundStyle(palette.textFaint)
             Spacer()
             Text("TCP · LISTEN")
                 .font(.lexend(9, .medium))
-                .foregroundStyle(.white.opacity(0.25))
+                .foregroundStyle(palette.textFaint)
         }
         .padding(.horizontal, 16)
         .frame(height: state.footerHeight)
@@ -282,52 +296,54 @@ private struct PortRow: View {
     let rowHeight: CGFloat
     let onKill: (Bool) -> Void
     @State private var showsCopied = false
+    @Environment(\.palette) private var palette
 
     var body: some View {
         HStack(spacing: 10) {
-            portIcon(icon, isContainer: entry.isContainer)
+            portIcon(icon, isContainer: entry.isContainer, palette: palette)
                 .frame(width: 20, height: 20)
 
             Text(verbatim: ":\(entry.port)")
                 .font(.lexend(13, .semibold).monospacedDigit())
-                .foregroundStyle(.white)
+                .foregroundStyle(palette.textPrimary)
                 .frame(width: 64, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
                     Text(entry.displayName)
                         .font(.lexend(12, .medium))
-                        .foregroundStyle(.white.opacity(0.92))
+                        .foregroundStyle(palette.textStrong)
                         .lineLimit(1)
                         .layoutPriority(1)
                     if let secondary = fadedLabel(for: entry) {
                         Text(secondary)
                             .font(.lexend(11))
-                            .foregroundStyle(.white.opacity(0.35))
+                            .foregroundStyle(palette.textTertiary)
                             .lineLimit(1)
                     }
                 }
                 HStack(spacing: 5) {
-                    metaChip(for: entry)
+                    metaChip(for: entry, palette: palette)
                     Text("\(entry.addressSummary)   pid \(entry.pid)")
                         .font(.lexend(10).monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.35))
+                        .foregroundStyle(palette.textTertiary)
                         .lineLimit(1)
                 }
             }
 
             Spacer(minLength: 8)
 
-            usageColumn(usage)
+            usageColumn(usage, palette: palette)
 
             killControl(killState: killState, isHovered: isHovered,
-                        port: entry.port, name: entry.displayName, onKill: onKill)
+                        port: entry.port, name: entry.displayName,
+                        palette: palette, onKill: onKill)
         }
         .padding(.horizontal, 10)
         .frame(height: rowHeight)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(.white.opacity(isHovered ? 0.07 : 0))
+                .fill(isHovered ? palette.fillHover : .clear)
         )
         .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         .onTapGesture {
@@ -349,10 +365,10 @@ private struct PortRow: View {
             if showsCopied {
                 Text("Copied localhost:\(entry.port)")
                     .font(.lexend(10, .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
+                    .foregroundStyle(palette.textStrong)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4)
-                    .background(Capsule().fill(.white.opacity(0.14)))
+                    .background(Capsule().fill(palette.fillToast))
                     .transition(.opacity)
             }
         }
@@ -381,7 +397,7 @@ private func memoryText(_ bytes: UInt64) -> String {
 }
 
 @ViewBuilder
-private func portIcon(_ icon: NSImage?, isContainer: Bool) -> some View {
+private func portIcon(_ icon: NSImage?, isContainer: Bool, palette: Palette) -> some View {
     if let icon {
         Image(nsImage: icon)
             .resizable()
@@ -389,11 +405,11 @@ private func portIcon(_ icon: NSImage?, isContainer: Bool) -> some View {
     } else {
         Image(systemName: isContainer ? "shippingbox.fill" : "terminal.fill")
             .font(.system(size: 11))
-            .foregroundStyle(.white.opacity(0.45))
+            .foregroundStyle(palette.iconIdle)
             .frame(width: 20, height: 20)
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(.white.opacity(0.08))
+                    .fill(palette.fillControl)
             )
     }
 }
@@ -412,15 +428,16 @@ private func fadedLabel(for entry: ListeningPort) -> String? {
 /// Small muted icon+label chip (git branch or container service). Renders
 /// nothing when neither applies.
 @ViewBuilder
-private func metaChip(for entry: ListeningPort) -> some View {
+private func metaChip(for entry: ListeningPort, palette: Palette) -> some View {
     if entry.isContainer {
-        metaChipLabel(symbol: "shippingbox", text: entry.containerService ?? "container")
+        metaChipLabel(symbol: "shippingbox", text: entry.containerService ?? "container",
+                      palette: palette)
     } else if let branch = entry.gitBranch, !branch.isEmpty {
-        metaChipLabel(symbol: "arrow.triangle.branch", text: branch)
+        metaChipLabel(symbol: "arrow.triangle.branch", text: branch, palette: palette)
     }
 }
 
-private func metaChipLabel(symbol: String, text: String) -> some View {
+private func metaChipLabel(symbol: String, text: String, palette: Palette) -> some View {
     HStack(spacing: 3) {
         Image(systemName: symbol)
             .font(.system(size: 8, weight: .semibold))
@@ -428,28 +445,26 @@ private func metaChipLabel(symbol: String, text: String) -> some View {
             .font(.lexend(10, .medium))
             .lineLimit(1)
     }
-    .foregroundStyle(.white.opacity(0.55))
+    .foregroundStyle(palette.textMuted)
 }
 
-private func usageColumn(_ usage: ProcessUsage?) -> some View {
+private func usageColumn(_ usage: ProcessUsage?, palette: Palette) -> some View {
     VStack(alignment: .trailing, spacing: 1) {
         Text(usage.map { cpuText($0.cpuPercent) } ?? "–")
             .font(.lexend(10.5, .medium).monospacedDigit())
             .foregroundStyle(
-                (usage?.cpuPercent ?? 0) >= 90
-                    ? Color.orange
-                    : .white.opacity(0.7)
+                (usage?.cpuPercent ?? 0) >= 90 ? palette.accent : palette.textSecondary
             )
         Text(usage.map { memoryText($0.memoryBytes) } ?? "–")
             .font(.lexend(9.5).monospacedDigit())
-            .foregroundStyle(.white.opacity(0.35))
+            .foregroundStyle(palette.textTertiary)
     }
     .frame(width: 56, alignment: .trailing)
 }
 
 @ViewBuilder
 private func killControl(killState: KillState?, isHovered: Bool,
-                         port: Int, name: String,
+                         port: Int, name: String, palette: Palette,
                          onKill: @escaping (Bool) -> Void) -> some View {
     switch killState {
     case .terminating(let since) where Date().timeIntervalSince(since) <= 3:
@@ -463,16 +478,16 @@ private func killControl(killState: KillState?, isHovered: Bool,
         } label: {
             Image(systemName: "bolt.fill")
                 .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.red)
+                .foregroundStyle(palette.danger)
                 .frame(width: 22, height: 22)
-                .background(Circle().fill(.red.opacity(0.18)))
+                .background(Circle().fill(palette.dangerFill))
         }
         .buttonStyle(.plain)
         .help("Still running — force kill (SIGKILL)")
     case .failed(let message):
         Image(systemName: "exclamationmark.triangle.fill")
             .font(.system(size: 11))
-            .foregroundStyle(.yellow)
+            .foregroundStyle(palette.warning)
             .frame(width: 22, height: 22)
             .help(message)
     case nil:
@@ -481,10 +496,10 @@ private func killControl(killState: KillState?, isHovered: Bool,
         } label: {
             Image(systemName: "xmark")
                 .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(isHovered ? .white : .white.opacity(0.4))
+                .foregroundStyle(isHovered ? palette.onDanger : palette.iconIdle)
                 .frame(width: 22, height: 22)
                 .background(
-                    Circle().fill(isHovered ? Color.red.opacity(0.85) : .white.opacity(0.08))
+                    Circle().fill(isHovered ? palette.dangerFillHover : palette.fillControl)
                 )
         }
         .buttonStyle(.plain)
@@ -500,17 +515,18 @@ private struct IconButton: View {
     var isActive = false
     let action: () -> Void
     @State private var hovered = false
+    @Environment(\.palette) private var palette
 
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 10.5, weight: .semibold))
                 .foregroundStyle(
-                    isActive ? Color.orange : .white.opacity(hovered ? 0.95 : 0.45)
+                    isActive ? palette.accent : (hovered ? palette.textPrimary : palette.iconIdle)
                 )
                 .frame(width: 24, height: 24)
                 .background(
-                    Circle().fill(.white.opacity(hovered ? 0.12 : 0.05))
+                    Circle().fill(hovered ? palette.fillControlHover : palette.fillSubtle)
                 )
         }
         .buttonStyle(.plain)

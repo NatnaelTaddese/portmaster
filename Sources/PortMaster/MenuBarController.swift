@@ -52,6 +52,14 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.updateTitle($0) }
             .store(in: &cancellables)
+
+        // Match the popover chrome (and its SwiftUI colorScheme) to the setting.
+        // Subscribed here rather than in init because deactivate() drops it.
+        state.$appearance
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.popover.appearance = $0.nsAppearance }
+            .store(in: &cancellables)
     }
 
     func deactivate() {

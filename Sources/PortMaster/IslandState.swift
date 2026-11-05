@@ -8,6 +8,7 @@ enum AppMode: String {
 }
 
 private let displayModeKey = "displayMode"
+private let appearanceKey = "appearance"
 
 /// Drives the island's geometry and expand/collapse behavior.
 final class IslandState: ObservableObject {
@@ -19,6 +20,13 @@ final class IslandState: ObservableObject {
     @Published var mode: AppMode =
         AppMode(rawValue: UserDefaults.standard.string(forKey: displayModeKey) ?? "") ?? .notch {
         didSet { UserDefaults.standard.set(mode.rawValue, forKey: displayModeKey) }
+    }
+
+    /// System / Light / Dark, persisted across launches. The notched island
+    /// ignores this and stays black (see NotchWindowController).
+    @Published var appearance: AppearanceMode =
+        AppearanceMode(rawValue: UserDefaults.standard.string(forKey: appearanceKey) ?? "") ?? .system {
+        didSet { UserDefaults.standard.set(appearance.rawValue, forKey: appearanceKey) }
     }
 
     @Published var notchWidth: CGFloat = 200

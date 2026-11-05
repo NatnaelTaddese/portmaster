@@ -13,7 +13,11 @@ one central place to manage what's up and running.
   a red ⚡ button appears on the row to force kill.
 - **Pin** (📌 in the header) keeps the island open; Esc or clicking anywhere
   outside collapses it.
-- Right-click the island for Refresh / Quit.
+- Right-click the island for Refresh / Settings / Quit.
+- **Settings → Appearance → Theme** picks System / Light / Dark. Over a
+  physical notch the island always stays black so it blends with the
+  hardware; the menu bar popover and the pill on non-notch displays follow
+  the chosen theme.
 - On displays without a notch it renders as a small pill at the top center
   showing the port count.
 

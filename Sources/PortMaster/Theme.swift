@@ -53,12 +53,6 @@ struct Palette {
     let fillControlHover: Color
     let fillToast: Color
 
-    // Panes (bordered blocks of rows inside the island / popover)
-    let paneFill: Color
-    let paneEdgeOuter: Color
-    let paneEdgeInner: Color
-    let paneDivider: Color
-
     // Accents
     let statusActive: Color
     let statusIdle: Color
@@ -69,10 +63,8 @@ struct Palette {
     let onDanger: Color
     let warning: Color
 
-    // Neutrals sampled from Rex: window #151619, pane #1C1C1E, edge #0B0B0B
-    // outside a #494949 hairline.
     static let dark = Palette(
-        surface: Color(red: 0x15/255, green: 0x16/255, blue: 0x19/255),
+        surface: .black,
         border: .white.opacity(0.10),
         borderCollapsed: .white.opacity(0.05),
         shadow: .black.opacity(0.55),
@@ -84,14 +76,10 @@ struct Palette {
         textTertiary: .white.opacity(0.35),
         textFaint: .white.opacity(0.28),
         fillSubtle: .white.opacity(0.05),
-        fillHover: .white.opacity(0.06),
+        fillHover: .white.opacity(0.07),
         fillControl: .white.opacity(0.08),
         fillControlHover: .white.opacity(0.12),
         fillToast: .white.opacity(0.14),
-        paneFill: Color(red: 0x1C/255, green: 0x1C/255, blue: 0x1E/255),
-        paneEdgeOuter: Color(white: 0x0B/255),
-        paneEdgeInner: .white.opacity(0.18),
-        paneDivider: .white.opacity(0.06),
         statusActive: .green,
         statusIdle: .gray,
         accent: .orange,
@@ -103,7 +91,7 @@ struct Palette {
     )
 
     static let light = Palette(
-        surface: Color(red: 0xEC/255, green: 0xEC/255, blue: 0xEE/255),
+        surface: Color(white: 0.96),
         border: .black.opacity(0.12),
         borderCollapsed: .black.opacity(0.08),
         shadow: .black.opacity(0.22),
@@ -119,10 +107,6 @@ struct Palette {
         fillControl: .black.opacity(0.06),
         fillControlHover: .black.opacity(0.10),
         fillToast: .black.opacity(0.10),
-        paneFill: .white,
-        paneEdgeOuter: .black.opacity(0.13),
-        paneEdgeInner: .white,
-        paneDivider: .black.opacity(0.07),
         statusActive: .green,
         statusIdle: .gray,
         accent: .orange,

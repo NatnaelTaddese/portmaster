@@ -43,14 +43,10 @@ struct IslandRootView: View {
         )
     }
 
-    /// Pure black over a physical notch (camouflages the hardware); the
-    /// theme's chrome color everywhere else.
-    private var islandFill: Color {
-        state.hasNotch ? .black : palette.surface
-    }
-
     private var island: some View {
         ZStack(alignment: .top) {
+            islandShape.fill(palette.surface)
+
             if state.isExpanded {
                 PortListContent(state: state, scanner: scanner, openSettings: openSettings)
                     // Extra top padding matches the panel's overscan lift so the
@@ -67,7 +63,6 @@ struct IslandRootView: View {
             // The overscan grows the surface fill upward past the screen edge.
             height: state.currentIslandSize.height + IslandState.topOverscan
         )
-        .background(islandShape.fill(islandFill))
         .clipShape(islandShape)
         .overlay(
             islandShape.strokeBorder(
@@ -118,10 +113,9 @@ private struct CollapsedPill: View {
 // MARK: - Menu bar popover
 
 /// Hosts the shared port list for the menu bar's `NSPopover` at a fixed width,
-/// on the theme's solid chrome color so panes sit on the same neutral backdrop
-/// as the island (the system glass would tint it with whatever is behind).
-/// The popover's `NSAppearance` (synced to the Theme setting) drives
-/// `colorScheme` here.
+/// on the theme's solid surface color so it matches the island (the system
+/// glass would tint it with whatever is behind). The popover's `NSAppearance`
+/// (synced to the Theme setting) drives `colorScheme` here.
 struct MenuBarPopoverView: View {
     @ObservedObject var state: IslandState
     @ObservedObject var scanner: PortScanner
@@ -203,44 +197,19 @@ struct PortListContent: View {
 
     private var portList: some View {
         ScrollView(.vertical, showsIndicators: scanner.ports.count > state.maxVisibleRows) {
-            LazyVStack(spacing: state.paneSpacing) {
+            LazyVStack(spacing: 0) {
                 if !devPorts.isEmpty {
-                    sectionPane("Dev servers", devPorts)
+                    sectionHeader("Dev servers")
+                    ForEach(groupPortsByOwner(devPorts), id: \.first!.id) { groupView($0) }
                 }
                 if !systemPorts.isEmpty {
-                    sectionPane("System", systemPorts)
+                    sectionHeader("System")
+                    ForEach(groupPortsByOwner(systemPorts), id: \.first!.id) { groupView($0) }
                 }
             }
             .padding(.horizontal, 8)
-            .padding(.bottom, state.listBottomPadding)
         }
-        .hardScrollEdges()
         .frame(height: state.listHeight)
-    }
-
-    /// One section as a bordered pane, like a terminal split pane: a title row,
-    /// then the rows, with a hairline between owner groups.
-    private func sectionPane(_ title: String, _ ports: [ListeningPort]) -> some View {
-        let groups = groupPortsByOwner(ports)
-        return VStack(spacing: 0) {
-            sectionHeader(title, count: ports.count)
-            ForEach(Array(groups.enumerated()), id: \.element.first!.id) { index, group in
-                VStack(spacing: 0) {
-                    ForEach(group) { row($0) }
-                }
-                .overlay(alignment: .top) {
-                    if index > 0 {
-                        Rectangle()
-                            .fill(palette.paneDivider)
-                            .frame(height: 1)
-                            .padding(.horizontal, 10)
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, 4)
-        .padding(.bottom, state.sectionPaneInset)
-        .pane(cornerRadius: 12)
     }
 
     private func row(_ entry: ListeningPort) -> some View {
@@ -256,21 +225,38 @@ struct PortListContent: View {
         .onHover { hoveredRow = $0 ? entry.id : nil }
     }
 
-    /// Pane title row, like a Rex pane header: the section name plus a count.
-    private func sectionHeader(_ title: String, count: Int) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.lexend(11.5, .medium))
-                .foregroundStyle(palette.textSecondary)
-            Spacer()
-            Text("\(count)")
-                .font(.lexend(10.5, .medium).monospacedDigit())
-                .foregroundStyle(palette.textTertiary)
+    /// One owner group. A single port renders as a plain row; several ports that
+    /// share an owner are wrapped in a subtle container so it reads as one app.
+    @ViewBuilder
+    private func groupView(_ group: [ListeningPort]) -> some View {
+        if group.count == 1 {
+            row(group[0])
+        } else {
+            VStack(spacing: 0) {
+                ForEach(group) { row($0) }
+            }
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(palette.fillSubtle)
+            )
+            .padding(.vertical, 3)
         }
-        .padding(.horizontal, 10)
-        .frame(height: state.sectionHeaderHeight)
     }
 
+    private func sectionHeader(_ title: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.lexend(9.5, .semibold))
+                .foregroundStyle(palette.textTertiary)
+                .textCase(.uppercase)
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 3)
+        .frame(height: state.sectionHeaderHeight)
+    }
 
     private var emptyState: some View {
         VStack(spacing: 8) {
@@ -357,10 +343,10 @@ private struct PortRow: View {
         .padding(.horizontal, 10)
         .frame(height: rowHeight)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(isHovered ? palette.fillHover : .clear)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         .onTapGesture {
             if entry.isDevServer {
                 if let url = URL(string: "http://localhost:\(entry.port)") {
